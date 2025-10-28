@@ -52,23 +52,23 @@ x0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]     # state when we want to evaluate Jacobia
 t = 5.1                                 # time when we want to evaluate Jacobian/Hessian, in canonical time
 
 jac_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
-    HighFidelityEphemerisModel.eom_Nbody_Interp,       # this can be some other static equations of motion
+    HighFidelityEphemerisModel.eom_Nbody_Interp,      # this can be some other static equations of motion
     x0,
-    0.0,
+    0.0,                                              # place-holder for control argument
     parameters,
     t
 )
 
 hess_fd = HighFidelityEphemerisModel.eom_hessian_fd(
-    HighFidelityEphemerisModel.eom_Nbody_Interp,       # this can be some other static equations of motion
+    HighFidelityEphemerisModel.eom_Nbody_Interp,      # this can be some other static equations of motion
     x0,
-    0.0,
+    0.0,                                              # place-holder for control argument
     parameters,
     t
 )
 ```
 
-!!! note
+!!! warning
 
     The first argument to either `eom_jacobian_fd` or `eom_hessian_fd` is expected to be in allocating form, i.e. of the form 
 
@@ -77,7 +77,7 @@ hess_fd = HighFidelityEphemerisModel.eom_hessian_fd(
         dx = 10.0 * (u[2] - u[1])
         dy = u[1] * (28.0 - u[3]) - u[2]
         dz = u[1] * u[2] - (8 / 3) * u[3]
-        [dx, dy, dz]
+        return [dx, dy, dz]
     end
     ```
 
@@ -88,7 +88,7 @@ hess_fd = HighFidelityEphemerisModel.eom_hessian_fd(
         du[1] = 10.0 * (u[2] - u[1])
         du[2] = u[1] * (28.0 - u[3]) - u[2]
         du[3] = u[1] * u[2] - (8 / 3) * u[3]
-        nothing
+        return nothing
     end
     ```
 

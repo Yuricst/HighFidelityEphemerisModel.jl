@@ -47,3 +47,8 @@ The second argument `u` is a place-holder for control input.
 function eom_hessian_fd(eom::Function, x, u, params, t)
     return vector_hessian_forwarddiff(x -> eom(x, params, t), x)
 end
+
+
+function eom_jacobian_sparsediff(eom::Function, x, u, params, t)
+    return sparse_jacobian(params.adtype, params.jacobian_cache, eom, x -> eom(x, params, t))
+end

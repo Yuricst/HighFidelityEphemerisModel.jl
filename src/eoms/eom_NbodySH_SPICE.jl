@@ -10,16 +10,27 @@ function eom_NbodySH_SPICE!(dx, x, params, t)
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
 
-    for i = 2:length(params.mus)
-        pos_3body, _ = spkpos(
-            params.naif_ids[i],
-            params.et0 + t*params.TU,
-            params.naif_frame,
-            params.abcorr,
-            params.naif_ids[1]
-        )
-        pos_3body /= params.DU
-        dx[4:6] += third_body_accel(x[1:3], pos_3body, params.mus[i])
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]
+        else
+            pos_3body, _ = spkpos(
+                ID,
+                params.et0 + t*params.TU,
+                params.naif_frame,
+                params.abcorr,
+                params.naif_ids[1]
+            )
+            pos_3body /= params.DU
+        end
+
+        if i >= 2
+            dx[4:6] += third_body_accel(x[1:3], pos_3body, mu_i)
+        end
+
+        if ID == "10" && params.include_srp
+            dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
+        end
     end
     
     T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t*params.TU)
@@ -45,16 +56,27 @@ Right-hand side of N-body equations of motion compatible with `DifferentialEquat
 function eom_NbodySH_SPICE(x, params, t)
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
-    for i = 2:length(params.mus)
-        pos_3body, _ = spkpos(
-            params.naif_ids[i],
-            params.et0 + t*params.TU,
-            params.naif_frame,
-            params.abcorr,
-            params.naif_ids[1]
-        )
-        pos_3body /= params.DU
-        dx[4:6] += third_body_accel(x[1:3], pos_3body, params.mus[i])
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]
+        else
+            pos_3body, _ = spkpos(
+                ID,
+                params.et0 + t*params.TU,
+                params.naif_frame,
+                params.abcorr,
+                params.naif_ids[1]
+            )
+            pos_3body /= params.DU
+        end
+
+        if i >= 2
+            dx[4:6] += third_body_accel(x[1:3], pos_3body, mu_i)
+        end
+
+        if ID == "10" && params.include_srp
+            dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
+        end
     end
     
     T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t*params.TU)

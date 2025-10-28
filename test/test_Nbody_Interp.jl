@@ -47,6 +47,16 @@ test_eom_Nbody_Interp = function()
     # @show sol.u[end]
     # @show norm(sol.u[end] - u_check)
     @test norm(sol.u[end] - u_check) < 1e-11
+
+    # now also include SRP
+    parameters.include_srp = true
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Interp!, u0, tspan, parameters)
+    sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
+    u_check = [0.5223136131171607, 2.09613604449625, -0.16366138825154172,
+              -0.40936218196868585, 0.25386900598607015, -0.160056371691089]
+    # @show sol.u[end]
+    # @show norm(sol.u[end] - u_check)
+    @test norm(sol.u[end] - u_check) < 1e-11
 end
 
 
@@ -61,9 +71,12 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     et0 = str2et("2026-01-05T00:00:00")
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr;
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
-        interpolation_time_step=100.0)
+        interpolation_time_step=100.0,
+        include_srp = true,
+    )
 
     # initial state (in canonical scale)
     x0_dim, _ = spkezr("-60000", et0, naif_frame, abcorr, naif_ids[1])
@@ -71,7 +84,7 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     x0_stm = [x0; reshape(I(6),36)]
 
     # evaluate Jacobian
-    jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, x0, parameters, 0.0)
+    jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Interp(x0, 0.0, parameters, 0.0)
 
     f_eval = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Interp!(f_eval, x0, parameters, 0.0)

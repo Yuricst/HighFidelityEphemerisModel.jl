@@ -10,9 +10,20 @@ function eom_NbodySH_Interp!(dx, x, params, t)
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
 
-    for i = 2:length(params.mus)
-        pos_3body = HighFidelityEphemerisModel.get_pos(params.interpolated_ephems[i-1], params.et0 + t*params.TU) /params.DU
-        dx[4:6] += third_body_accel(x[1:3], pos_3body, params.mus[i])
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]
+        else
+            pos_3body = HighFidelityEphemerisModel.get_pos(params.interpolated_ephems[i-1], params.et0 + t*params.TU) /params.DU
+        end
+
+        if i >= 2
+            dx[4:6] += third_body_accel(x[1:3], pos_3body, mu_i)
+        end
+
+        if ID == "10" && params.include_srp
+            dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
+        end
     end
 
     if !isnothing(params.spherical_harmonics_data)
@@ -41,9 +52,20 @@ Right-hand side of N-body equations of motion compatible with `DifferentialEquat
 function eom_NbodySH_Interp(x, params, t)
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
-    for i = 2:length(params.mus)
-        pos_3body = HighFidelityEphemerisModel.get_pos(params.interpolated_ephems[i-1], params.et0 + t*params.TU) /params.DU
-        dx[4:6] += third_body_accel(x[1:3], pos_3body, params.mus[i])
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]
+        else
+            pos_3body = HighFidelityEphemerisModel.get_pos(params.interpolated_ephems[i-1], params.et0 + t*params.TU) /params.DU
+        end
+
+        if i >= 2
+            dx[4:6] += third_body_accel(x[1:3], pos_3body, mu_i)
+        end
+
+        if ID == "10" && params.include_srp
+            dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
+        end
     end
 
     if !isnothing(params.spherical_harmonics_data)

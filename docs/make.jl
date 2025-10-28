@@ -18,7 +18,8 @@ makedocs(
 		"Home" => "index.md",
         "Overview" => "overview.md",
         "Tutorials" => Any[
-            "Jacobians & Hessians" => "jacobians_hessians.md",
+            "Basics" => "tutorials/basics.md",
+            "Jacobians & Hessians" => "tutorials/jacobians_hessians.md",
         ],
         "API" => "api.md",
 		# "API" => Any[

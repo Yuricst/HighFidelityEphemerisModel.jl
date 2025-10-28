@@ -13,7 +13,15 @@ What `HighFidelityEphemerisModel.jl` is *not*:
 We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `Symbolics`.
 
 
-## Quick start
+## Install
+
+### From the Registry
+
+```julia
+] add HighFidelityEphemerisModel
+```
+
+### Checkout the repo
 
 1. `git clone` this repositiory
 2. In your project directory, add:

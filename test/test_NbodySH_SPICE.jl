@@ -36,7 +36,11 @@ test_eom_NbodySH_SPICE = function()
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         filepath_spherical_harmonics = filepath_spherical_harmonics,
         nmax = nmax,
-        frame_PCPF = "MOON_PA"
+        frame_PCPF = "MOON_PA",
+        include_srp = true,
+        srp_Cr = 1.15,
+        srp_Am = 0.002,
+        srp_P0 = 4.56e-6,
     )
     # @show parameters.DU, parameters.TU, parameters.VU
     # @show parameters.mus
@@ -50,7 +54,8 @@ test_eom_NbodySH_SPICE = function()
     # solve
     prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, u0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-14, abstol=1e-14)
-    u_check = [-1.3008005902886173, 1.0821476922891953, -0.568881995188118, -0.13115294012566467, -0.6582795434237702, 0.0612542261511961]
+    u_check = [-1.3008031550828112, 1.082155017821313, -0.5688825611441191,
+               -0.13115469895637183, -0.6582761913248995, 0.06125335489936464]
     @test norm(sol.u[end] - u_check) < 1e-11
 
     # also solve the two-body problem for plotting
@@ -92,6 +97,10 @@ function test_eom_stm_NbodySH_SPICE(;verbose=false)
         nmax = nmax,
         frame_PCPF = "MOON_PA",
         interpolation_time_step = interpolation_time_step,
+        include_srp = true,
+        srp_Cr = 1.15,
+        srp_Am = 0.002,
+        srp_P0 = 4.56e-6,
     )
 
     # initial state (in canonical scale)

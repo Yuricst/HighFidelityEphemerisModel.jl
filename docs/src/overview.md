@@ -21,8 +21,7 @@ In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravita
 
 - third-body perturbations
 - spherical harmonics
-- solar radiation pressure (todo)
-- drag (todo)
+- solar radiation pressure
 
 ```math
 \dot{\boldsymbol{x}}(t) = 
@@ -133,7 +132,28 @@ W_{n m}=\left(\frac{R_{\oplus}}{r}\right)^{n+1} \cdot P_{n m}(\sin \phi) \cdot \
 
 #### Cannonball model
 
-TODO
+The cannonball model SRP acceleration is given by
+
+```math
+\boldsymbol{a}_{\mathrm{SRP}}(t) = 
+P_{\odot} \left(\frac{\mathrm{AU}}{\| \boldsymbol{r}_{\odot} \|_2}\right)^2 C_r \frac{A}{m} \dfrac{\boldsymbol{r}_{\odot}}{\| \boldsymbol{r}_{\odot} \|_2}
+```
+
+where $\mathrm{AU}$ is the astronomical unit, $P_{\odot}$ is the ratiation pressure at $1\,\mathrm{AU}$, $C_r$ is the radiation pressure coefficient, $A/m$ is the area-to-mass ratio, and $\boldsymbol{r}_{\odot}$ is the Sun-to-spacecraft position vector.
+In `HighFidelityEphemerisModel`, the above is computed in canonical scales as
+
+```math
+\boldsymbol{a}_{\mathrm{SRP}}(t) = k_{\mathrm{SRP}} \dfrac{\boldsymbol{r}_{\odot}}{\| \boldsymbol{r}_{\odot} \|_2^3}
+```
+
+where $k_{\mathrm{SRP}}$
+
+```math
+k_{\mathrm{SRP}} = 
+P_{\odot} \left(\frac{\mathrm{AU}}{\mathrm{DU}}\right)^2 C_r \frac{A/m}{10^3}  \dfrac{\mathrm{TU}^2}{\mathrm{DU}}
+```
+
+is pre-computed and stored.
 
 
 ## List of equations of motion in `HighFidelityEphemerisModel.jl`
@@ -160,72 +180,3 @@ The table below summarizes the equations of motion. Note:
 
     The accuracy of interpolated equations of motion (with `_interp` in the name) depends on the `interpolation_time_step`; if high-accuracy integration is required, it is advised to directly use the equations of motion that internally call SPICE (i.e. with `_SPICE` in the name)
 
-
-## Initializing the parameter
-
-We first need to define the parameter struct to be parsed as argument to the equations of motion.
-
-Below is the most general example compatible with `eom_NbodySH_Interp!`/`eom_stm_NbodySH_Interp_fd!`:
-
-```julia
-using OrdinaryDiffEq
-using HighFidelityEphemerisModel
-
-# load SPICE kernels
-spice_dir = ENV["SPICE"]
-furnsh(joinpath(spice_dir, "lsk", "naif0012.tls"))
-furnsh(joinpath(spice_dir, "spk", "de440.bsp"))
-furnsh(joinpath(spice_dir, "pck", "gm_de440.tpc"))
-furnsh(joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc"))
-furnsh(joinpath(spice_dir, "fk", "moon_de440_250416.tf"))
-
-naif_ids = ["301", "399", "10"]        # NAIF IDs of bodies to be included; first ID is of the central body
-GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]      # in km^3/s^2
-naif_frame = "J2000"
-abcorr = "NONE"
-DU = 1e5                               # canonical distance unit, in km
-
-nmax = 4                               # using up to 4-by-4 spherical harmonics
-filepath_spherical_harmonics = "HighFidelityEphemerisModel.jl/data/luna/gggrx_1200l_sha_20x20.tab"
-
-et0 = str2et("2026-01-05T00:00:00")    # reference epoch
-etf = et0 + 30 * 86400.0
-interpolate_ephem_span = [et0, etf]    # range of epoch to interpolate ephemeris
-interpolation_time_step = 1000.0       # time-step to sample ephemeris for interpolation
-
-parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-    et0, DU, GMs, naif_ids, naif_frame, abcorr;
-    interpolate_ephem_span=interpolate_ephem_span,
-    interpolation_time_step = interpolation_time_step,
-    filepath_spherical_harmonics = filepath_spherical_harmonics,
-    nmax = nmax,
-    frame_PCPF = "MOON_PA",
-)
-```
-
-Note:
-
-- NAIF body IDs are defined according to: [https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/req/naif_ids.html](https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/req/naif_ids.html)
-- if using `_SPICE` equations of motion, you do not need to parse `interpolate_ephem_span` and `interpolation_time_step`
-- if using `Nbody` dynamics instead of `NbodySH`, you do not need to parse `filepath_spherical_harmonics`, `nmax`, and `frame_PCPF`
-
-
-## Solving an Initial Value Problem
-
-The integration is done with the `OrdinaryDiffEq.jl` library (or equivalently with `DifferentialEquations.jl`).
-
-```julia
-# initial state (in canonical scale)
-x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]
-
-# time span (in canonical scale)
-tspan = (0.0, 6 * 3600/parameters.TU)
-
-# solve with SPICE
-prob_spice = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
-sol_spice = solve(prob_spice, Vern8(), reltol=1e-14, abstol=1e-14)
-
-# solve with interpolation
-prob_interp = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_Interp!, x0, tspan, parameters)
-sol_interp = solve(prob_interp, Vern8(), reltol=1e-14, abstol=1e-14)
-```

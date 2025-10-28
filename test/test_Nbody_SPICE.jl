@@ -38,6 +38,16 @@ test_eom_Nbody_SPICE = function()
     u_check = [0.5223145338552279, 2.0961454012986276, -0.16366028913053066,
               -0.4093613718782754, 0.2538623882288259, -0.1600564978501581]
     @test norm(sol.u[end] - u_check) < 1e-11
+
+    # now also include SRP
+    parameters.include_srp = true
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
+    sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
+    u_check = [0.5223136131171607, 2.09613604449625, -0.16366138825154172,
+              -0.40936218196868585, 0.25386900598607015, -0.160056371691089]
+    # @show sol.u[end]
+    # @show norm(sol.u[end] - u_check)
+    @test norm(sol.u[end] - u_check) < 1e-11
 end
 
 
@@ -50,9 +60,12 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
     DU = 3000.0
 
     et0 = str2et("2020-01-01T00:00:00")
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr)
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        include_srp = true,
+    )
     # @show parameters.DU, parameters.TU, parameters.VU
-    # @show parameters.mus
+    # @show parameters
 
     # initial state (in canonical scale)
     x0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]

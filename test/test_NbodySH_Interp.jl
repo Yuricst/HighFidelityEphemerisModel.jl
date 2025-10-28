@@ -42,6 +42,10 @@ test_eom_NbodySH_SPICE = function()
         nmax = nmax,
         frame_PCPF = "MOON_PA",
         interpolation_time_step = interpolation_time_step,
+        include_srp = true,
+        srp_Cr = 1.15,
+        srp_Am = 0.002,
+        srp_P0 = 4.56e-6,
     )
     # @show parameters.DU, parameters.TU, parameters.VU
     # @show parameters.mus
@@ -102,6 +106,10 @@ function test_eom_stm_NbodySH_Interp(;verbose=false)
         nmax = nmax,
         frame_PCPF = "MOON_PA",
         interpolation_time_step = interpolation_time_step,
+        include_srp = true,
+        srp_Cr = 1.15,
+        srp_Am = 0.002,
+        srp_P0 = 4.56e-6,
     )
 
     # initial state (in canonical scale)

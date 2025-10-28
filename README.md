@@ -87,6 +87,10 @@ parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
     frame_PCPF = "MOON_PA",
+    include_srp = true,
+    srp_Cr = 1.15,
+    srp_Am = 0.002,
+    srp_P0 = 4.56e-6,
 )
 
 # construct & solve ODE problem
