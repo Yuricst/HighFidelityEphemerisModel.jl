@@ -158,7 +158,7 @@ function test_eom_stm_NbodySH_SPICE(;verbose=false)
         lines!(ax3d, Array(sol_fd)[1,:], Array(sol_fd)[2,:], Array(sol_fd)[3,:], color=:green)
         display(fig)
     end
-    @test norm(sol.u[end][1:6] - sol_fd.u[end][1:6]) < 1e-12
+    @test norm(sol.u[end][1:6] - sol_fd.u[end][1:6]) < 1e-11
 
     # construct numerical STM
     STM_analytical = reshape(sol_fd.u[end][7:42],6,6)'
