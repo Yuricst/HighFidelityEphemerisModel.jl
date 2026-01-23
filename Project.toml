@@ -18,6 +18,7 @@ Dierckx = "0.5"
 ForwardDiff = "1.0"
 OrdinaryDiffEq = "6.98"
 SPICE = "0.2"
+SparseDiffTools = "2.26"
 Symbolics = "6.43"
 julia = "1.10"
 
