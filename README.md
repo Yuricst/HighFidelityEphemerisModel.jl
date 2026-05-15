@@ -36,14 +36,14 @@ We strive for minimal dependencies (listed in `Project.toml`), consisting of: `D
 2. In your project directory, add:
 
 ```julia-repl
-pkg> dev ./path/to/HighFidelityEphemerisModel.jl
+] dev ./path/to/HighFidelityEphemerisModel.jl
 ```
 
 3. To run tests, `cd` to the root of this repository, then
 
 ```julia-repl
-(@v1.10) pkg> activate .
-(HighFidelityEphemerisModel) pkg> test
+] activate .
+test
 ```
 
 
