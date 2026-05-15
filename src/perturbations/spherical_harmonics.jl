@@ -205,8 +205,12 @@ function load_spherical_harmonics(filepath::String, nmax::Int, denormalize::Bool
                 else
                     k = 2
                 end
+
+                # undo normalization, c.f. Montenbruck & Gill pg. 58 eqn (3.13)
                 spherical_harmonics_data["Cnm"][n,m] = C / sqrt(factorial(n+m)/(k*(2*n+1)*factorial(n-m)));
                 spherical_harmonics_data["Snm"][n,m] = S / sqrt(factorial(n+m)/(k*(2*n+1)*factorial(n-m)));
+            else
+                error("Normalization not supported")
             end
     
             if n == nmax + 1

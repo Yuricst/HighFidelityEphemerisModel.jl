@@ -11,6 +11,17 @@ if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
 end
 
+
+function test_earth_spherical_harmonics(nmax::Int=8)
+    filepath = joinpath(@__DIR__, "../data/earth/GGM03S.tab")
+    # filepath = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
+    denormalize = true
+    spherical_harmonics_data = HighFidelityEphemerisModel.load_spherical_harmonics(filepath, nmax, denormalize)
+    @test spherical_harmonics_data["Cnm"][2,0] ≈ -0.00108263 atol=1e-6
+    return
+end
+
+
 function test_spherical_harmonics()
     # load gggrd_20x20.tab file
     nmax = 8
@@ -49,4 +60,5 @@ function test_spherical_harmonics()
     @test all(isapprox.(a_full, a_full_check, atol=1e-10))
 end
 
+test_earth_spherical_harmonics()
 test_spherical_harmonics()
