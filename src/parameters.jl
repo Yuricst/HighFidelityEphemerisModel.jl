@@ -138,8 +138,10 @@ function HighFidelityEphemerisModelParameters(
         end
     end
 
-    # alias for factorial function to avoid overflow
-    factorial_alias = nmax <= 18 ? factorial : factorial_safe
+    # Spherical-harmonic acceleration evaluates Legendre terms up to degree nmax + 1,
+    # whose summation uses factorial(2 * (nmax + 1)). Int factorial is safe only
+    # through factorial(20), so switch before nmax reaches 10.
+    factorial_alias = nmax <= 9 ? factorial : factorial_safe
     if !isnothing(filepath_spherical_harmonics)
         spherical_harmonics_data = load_spherical_harmonics(
             filepath_spherical_harmonics, nmax, true, factorial_alias

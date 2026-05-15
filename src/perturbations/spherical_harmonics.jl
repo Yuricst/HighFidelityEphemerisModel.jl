@@ -21,7 +21,7 @@ Compute Legendre function of degree n order m
 # Returns
 - `Pnm::Real`: Legendre function value
 """
-function legendre(n::Int, m::Int, t::Real, factorial_alias::Function = factorial)
+function legendre(n::Int, m::Int, t::Real, factorial_alias::Function = factorial_safe)
     @assert n >= m "Require n >= m!"
     
     # Get r
@@ -61,7 +61,7 @@ c.f. Montenbruck & Gill pg.66 eqn (3.27)
 - `Vnm::Real`: Vnm component
 - `Wnm::Real`: Wnm component
 """
-function get_VWnm(phi::Real, lambda::Real, R::Real, r::Real, n::Int, m::Int, factorial_alias::Function = factorial)
+function get_VWnm(phi::Real, lambda::Real, R::Real, r::Real, n::Int, m::Int, factorial_alias::Function = factorial_safe)
     Pnm = legendre(n,m,sin(phi), factorial_alias)
     Vnm = (R/r)^(n+1) * Pnm * cos(m*lambda)
     Wnm = (R/r)^(n+1) * Pnm * sin(m*lambda)
@@ -91,7 +91,7 @@ function spherical_harmonics_nm_accel_PCPF(
     phi::Real, lambda::Real, r::Real, 
     Cnm_dict::Dict, Snm_dict::Dict,
     GM::Real, R::Real, n::Int, m::Int,
-    factorial_alias::Function = factorial
+    factorial_alias::Function = factorial_safe
 )
     # Extract coefficients
     Cnm = Cnm_dict[n,m]
@@ -142,7 +142,7 @@ function spherical_harmonics_accel_PCPF(
     rvec_PCPF::Vector,
     Cnm_dict::Dict, Snm_dict::Dict,
     GM::Real, R::Real, nmax::Int,
-    factorial_alias::Function = factorial
+    factorial_alias::Function = factorial_safe
 )
     lmb, phi, r = cart2sph(rvec_PCPF)
     accel_PCPF = zeros(3)
@@ -165,7 +165,7 @@ function spherical_harmonics_accel(
     GM::Real,
     R::Real,
     nmax::Int,
-    factorial_alias::Function = factorial
+    factorial_alias::Function = factorial_safe
 )
     rvec_PCPF = T_inr2pcpf * rvec_integrator
     return transpose(T_inr2pcpf) * spherical_harmonics_accel_PCPF(
@@ -178,7 +178,7 @@ function load_spherical_harmonics(
     filepath::String,
     nmax::Int,
     denormalize::Bool,
-    factorial_alias::Function = factorial,
+    factorial_alias::Function = factorial_safe,
 )
     spherical_harmonics_data = Dict()
     spherical_harmonics_data["nmax"] = nmax
