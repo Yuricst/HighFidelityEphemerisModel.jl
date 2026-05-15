@@ -12,7 +12,7 @@ function eom_NbodySH_SPICE!(dx, x, params, t)
 
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
         if i == 1
-            pos_3body = [0.0, 0.0, 0.0]
+            pos_3body = [0.0, 0.0, 0.0]     # needed for Sun-centered EOM with SRP
         else
             pos_3body, _ = spkpos(
                 ID,
