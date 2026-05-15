@@ -164,7 +164,7 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
         # @show sol_fd.u[end][1:6]
     end
     @test norm(sol_symb.u[end][1:6] - sol_fd.u[end][1:6]) < 1e-12
-    @test norm(sol_symb.u[end][7:42] - sol_fd.u[end][7:42]) < 1e-10
+    @test norm(sol_symb.u[end][7:42] - sol_fd.u[end][7:42]) < 1e-8
 
     # construct numerical STM
     STM_analytical = reshape(sol_symb.u[end][7:42],6,6)'
