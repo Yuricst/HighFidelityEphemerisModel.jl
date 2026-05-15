@@ -68,6 +68,7 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
 - `srp_P0::Float64`: SRP power in W
 - `nu::Int`: control dimension for vector to be constructed within parameters struct
+- `use_canonical_scales::Bool`: whether to use canonical scales for the problem
 """
 function HighFidelityEphemerisModelParameters(
     et0::Float64,
