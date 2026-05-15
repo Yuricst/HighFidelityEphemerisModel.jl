@@ -15,6 +15,7 @@ mutable struct HighFidelityEphemerisModelParameters
     interpolated_ephems::Union{Nothing,Vector{InterpolatedEphemeris}}
     spherical_harmonics_data::Union{Nothing,Dict}
     frame_PCPF::Union{Nothing,String}
+    factorial_alias::Function
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
 
     include_srp::Bool
@@ -129,9 +130,12 @@ function HighFidelityEphemerisModelParameters(
         end
     end
 
+    # alias for factorial function to avoid overflow
+    factorial_alias = nmax <= 18 ? factorial : factorial_safe
     if !isnothing(filepath_spherical_harmonics)
-        spherical_harmonics_data = load_spherical_harmonics(filepath_spherical_harmonics, nmax, true)
-        #@assert isnothing(frame_PCPF) == false, "frame_PCPF must be provided when spherical harmonics are used"
+        spherical_harmonics_data = load_spherical_harmonics(
+            filepath_spherical_harmonics, nmax, true, factorial_alias
+        )
     else
         spherical_harmonics_data = nothing
     end
@@ -153,6 +157,7 @@ function HighFidelityEphemerisModelParameters(
         interpolated_ephems,
         spherical_harmonics_data,
         frame_PCPF,
+        factorial_alias,
         interpolated_transformation,
         include_srp,
         k_srp_cannonball,

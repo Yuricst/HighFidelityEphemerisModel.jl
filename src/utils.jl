@@ -52,3 +52,12 @@ end
 function eom_jacobian_sparsediff(eom::Function, x, u, params, t)
     return sparse_jacobian(params.adtype, params.jacobian_cache, eom, x -> eom(x, params, t))
 end
+
+
+function factorial_safe(n::Int)
+    if n <= 18                      # limit chosen so that factorial(n+m) and factorial(n-m) do not overflow
+        return factorial(n)
+    else
+        return factorial(BigFloat(n))
+    end
+end

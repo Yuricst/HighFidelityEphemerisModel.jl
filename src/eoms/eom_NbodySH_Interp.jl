@@ -35,7 +35,8 @@ function eom_NbodySH_Interp!(dx, x, params, t)
             params.spherical_harmonics_data["Snm"],
             params.spherical_harmonics_data["GM"],
             params.spherical_harmonics_data["REFERENCE RADIUS"],
-            params.spherical_harmonics_data["nmax"]
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
         )
         dx[4:6] += a_SH / (params.VU/params.TU)
     end
@@ -77,7 +78,8 @@ function eom_NbodySH_Interp(x, params, t)
             params.spherical_harmonics_data["Snm"],
             params.spherical_harmonics_data["GM"],
             params.spherical_harmonics_data["REFERENCE RADIUS"],
-            params.spherical_harmonics_data["nmax"]
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
         )
         dx[4:6] += a_SH / (params.VU/params.TU)
     end

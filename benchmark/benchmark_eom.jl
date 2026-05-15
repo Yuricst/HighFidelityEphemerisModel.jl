@@ -24,7 +24,7 @@ naif_frame = "J2000"
 abcorr = "NONE"
 DU = 3000.0
 filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
-nmax = 8
+nmax = 20
 
 et0 = str2et("2020-01-01T00:00:00")
 etf = et0 + 30 * 86400.0

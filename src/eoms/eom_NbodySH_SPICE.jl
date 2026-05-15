@@ -41,7 +41,8 @@ function eom_NbodySH_SPICE!(dx, x, params, t)
         params.spherical_harmonics_data["Snm"],
         params.spherical_harmonics_data["GM"],
         params.spherical_harmonics_data["REFERENCE RADIUS"],
-        params.spherical_harmonics_data["nmax"]
+        params.spherical_harmonics_data["nmax"],
+        params.factorial_alias,
     )
     dx[4:6] += a_SH / (params.VU/params.TU)
     return nothing
@@ -87,7 +88,8 @@ function eom_NbodySH_SPICE(x, params, t)
         params.spherical_harmonics_data["Snm"],
         params.spherical_harmonics_data["GM"],
         params.spherical_harmonics_data["REFERENCE RADIUS"],
-        params.spherical_harmonics_data["nmax"]
+        params.spherical_harmonics_data["nmax"],
+        params.factorial_alias,
     )
     dx[4:6] += a_SH / (params.VU/params.TU)
     return dx
