@@ -87,10 +87,17 @@ function HighFidelityEphemerisModelParameters(
     srp_Am::Float64 = 0.002,
     srp_P0::Float64 = 4.56e-6,
     nu::Int = 4,
+    use_canonical_scales::Bool = true,
 )
-    VU = sqrt(GMs[1]/DU)
-    TU = DU/VU
-    mus = GMs / GMs[1]         # scaled GM's
+    # check to see if we use canonical scales
+    if use_canonical_scales
+        VU = sqrt(GMs[1]/DU)
+        TU = DU/VU
+        mus = GMs / GMs[1]          # scaled GM's
+    else
+        DU, TU, VU = 1.0, 1.0, 1.0  # overwrite canonical scales to 1
+        mus = GMs                   # unscaled GM's
+    end
 
     # Jacobian function
     if get_jacobian_func
