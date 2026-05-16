@@ -58,6 +58,32 @@ function test_spherical_harmonics()
         4.304294506669716e-7
     ]
     @test all(isapprox.(a_full, a_full_check, atol=1e-10))
+
+    # nmax >= 10 reaches factorial(22) in the n + 1 Legendre terms.
+    high_degree_nmax = 10
+    high_degree_data = HighFidelityEphemerisModel.load_spherical_harmonics(
+        filepath, high_degree_nmax, denormalize
+    )
+    high_degree_accel = HighFidelityEphemerisModel.spherical_harmonics_accel_PCPF(
+        rvec,
+        high_degree_data["Cnm"],
+        high_degree_data["Snm"],
+        high_degree_data["GM"],
+        high_degree_data["REFERENCE RADIUS"],
+        high_degree_nmax
+    )
+    @test all(isfinite, high_degree_accel)
+
+    params = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        0.0,
+        1.0,
+        [1.0],
+        ["301"];
+        filepath_spherical_harmonics = filepath,
+        nmax = high_degree_nmax,
+        get_jacobian_func = false,
+    )
+    @test params.factorial_alias === HighFidelityEphemerisModel.factorial_safe
 end
 
 test_earth_spherical_harmonics()
