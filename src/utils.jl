@@ -55,9 +55,9 @@ end
 
 
 function factorial_safe(n::Int)
-    if n <= 18                      # limit chosen so that factorial(n+m) and factorial(n-m) do not overflow
+    if n <= 20
         return factorial(n)
     else
-        return factorial(BigFloat(n))
+        return factorial(big(n))
     end
 end
