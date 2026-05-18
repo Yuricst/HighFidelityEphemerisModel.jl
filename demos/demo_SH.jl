@@ -43,7 +43,8 @@ rv0 = AstrodynamicsCore.kep2rv([8000.0, 0.05, deg2rad(47.0), deg2rad(30), deg2ra
 period = 2π * sqrt(8000^3/GMs[1])
 
 # propagate 
-tspan = (et0, et0 + 10 * period)
+# EOMs receive elapsed canonical time; SPICE epochs are formed as et0 + t*TU.
+tspan = (0.0, 10 * period / parameters.TU)
 ode = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, rv0, tspan, parameters)
 sol = solve(ode, Tsit5(), reltol=1e-11, abstol=1e-12)
 
@@ -57,7 +58,7 @@ fig_elements = Figure(size=(1200,800))
 for i in 1:6
     nrow, ncol = fld1(i, 3), mod1(i, 3)
     ax_W = Axis(fig_elements[nrow,ncol]; xlabel="Time, hours", ylabel=labels[i])
-    lines!(ax_W, (sol.t .- sol.t[1])/3600, multipliers[i] * kep_hist[i,:], color=:blue)
+    lines!(ax_W, sol.t .* parameters.TU ./ 3600, multipliers[i] * kep_hist[i,:], color=:blue)
 end
 
 # fig = Figure(size=(1200,800))
