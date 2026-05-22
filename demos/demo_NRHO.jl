@@ -3,6 +3,8 @@
 
 using LinearAlgebra
 using OrdinaryDiffEq
+using Printf
+using Random
 using SPICE
 using Test
 using GLMakie
@@ -80,7 +82,7 @@ end
 for _sol in sols
     _Ts_inr2em = sxform.(naif_frame, "EARTHMOONROTATINGMC", et0 .+ _sol.t * parameters.TU)
     _rs_em = hcat([T * u .* DU2SI for (T, u) in zip(_Ts_inr2em, _sol.u)]...)
-    scatter!(ax, rs_em[1,1] * SCALE_PLOT, rs_em[2,1] * SCALE_PLOT, rs_em[3,1] * SCALE_PLOT, color=:crimson, markersize=10)
+    scatter!(ax, _rs_em[1,1] * SCALE_PLOT, _rs_em[2,1] * SCALE_PLOT, _rs_em[3,1] * SCALE_PLOT, color=:crimson, markersize=10)
     lines!(ax, _rs_em[1, :] * SCALE_PLOT, _rs_em[2, :] * SCALE_PLOT, _rs_em[3, :] * SCALE_PLOT, color=:crimson, linewidth=0.25)
 
     for i in 1:3
