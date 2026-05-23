@@ -85,6 +85,8 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
 
     # evaluate Jacobian
     jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Interp(x0, 0.0, parameters, 0.0)
+    @test parameters.Rs == zeros(length(parameters.Rs))
+    @test parameters.R_sun == zeros(3)
 
     f_eval = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Interp!(f_eval, x0, parameters, 0.0)
@@ -133,6 +135,8 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     prob_symb = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp!, x0_stm, tspan, parameters)
     sol_symb = solve(prob_symb, Vern8(), reltol=1e-14, abstol=1e-14)
     @test sol_symb.retcode == SciMLBase.ReturnCode.Success
+    @test parameters.Rs == zeros(length(parameters.Rs))
+    @test parameters.R_sun == zeros(3)
 
     # solve with ForwardDiff Jacobian
     prob_fd = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp_fd!, x0_stm, tspan, parameters)

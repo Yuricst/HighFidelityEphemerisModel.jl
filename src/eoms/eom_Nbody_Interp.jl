@@ -64,6 +64,8 @@ function eom_stm_Nbody_Interp!(dx_stm, x_stm, params, t)
     dx_stm[1:3] = x_stm[4:6]
     dx_stm[4:6] = -params.mus[1] / norm(x_stm[1:3])^3 * x_stm[1:3]
 
+    Rs = zeros(length(params.Rs))
+    R_sun = zeros(3)
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
@@ -72,20 +74,20 @@ function eom_stm_Nbody_Interp!(dx_stm, x_stm, params, t)
         end
 
         if i >= 2
-            params.Rs[1+3(i-2):3(i-1)] = pos_3body
+            Rs[1+3(i-2):3(i-1)] = pos_3body
             dx_stm[4:6] += third_body_accel(x_stm[1:3], pos_3body, params.mus[i])
         end
 
         if ID == "10" && params.include_srp
-            params.R_sun = pos_3body
+            R_sun = pos_3body
             dx_stm[4:6] += srp_cannonball(x_stm[1:3], pos_3body, params.k_srp_cannonball)
         end
     end
 
     if params.include_srp
-        A = params.f_jacobian(x_stm[1:6], params.mus, params.Rs, params.k_srp_cannonball, params.R_sun)
+        A = params.f_jacobian(x_stm[1:6], params.mus, Rs, params.k_srp_cannonball, R_sun)
     else
-        A = params.f_jacobian(x_stm[1:6], params.mus, params.Rs)
+        A = params.f_jacobian(x_stm[1:6], params.mus, Rs)
     end
     dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)')', 36)
     return nothing
@@ -98,6 +100,8 @@ end
 Evaluate Jacobian of N-body problem
 """
 function dfdx_Nbody_Interp(x, u, params, t)
+    Rs = zeros(length(params.Rs))
+    R_sun = zeros(3)
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
@@ -105,17 +109,17 @@ function dfdx_Nbody_Interp(x, u, params, t)
             pos_3body = get_pos(params.interpolated_ephems[i-1], params.et0 + t*params.TU) /params.DU
         end
         if i >= 2
-            params.Rs[1+3(i-2):3(i-1)] = pos_3body
+            Rs[1+3(i-2):3(i-1)] = pos_3body
         end
         if ID == "10" && params.include_srp
-            params.R_sun = pos_3body
+            R_sun = pos_3body
         end
     end
     
     if params.include_srp
-        return params.f_jacobian(x[1:6], params.mus, params.Rs, params.k_srp_cannonball, params.R_sun)
+        return params.f_jacobian(x[1:6], params.mus, Rs, params.k_srp_cannonball, R_sun)
     else
-        return params.f_jacobian(x[1:6], params.mus, params.Rs)
+        return params.f_jacobian(x[1:6], params.mus, Rs)
     end
 end
 

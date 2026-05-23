@@ -43,7 +43,7 @@ rv0 = AstrodynamicsCore.kep2rv([8000.0, 0.05, deg2rad(47.0), deg2rad(30), deg2ra
 period = 2π * sqrt(8000^3/GMs[1])
 
 # propagate 
-tspan = (et0, et0 + 10 * period)
+tspan = (0.0, 10 * period)
 ode = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, rv0, tspan, parameters)
 sol = solve(ode, Tsit5(), reltol=1e-11, abstol=1e-12)
 

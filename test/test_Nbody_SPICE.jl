@@ -73,6 +73,8 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
 
     # evaluate Jacobian
     jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, 0.0, parameters, 0.0)
+    @test parameters.Rs == zeros(length(parameters.Rs))
+    @test parameters.R_sun == zeros(3)
     # @show jac_analytical
 
     f_eval = zeros(6)
@@ -114,6 +116,8 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
     # solve
     prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!, x0_stm, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
+    @test parameters.Rs == zeros(length(parameters.Rs))
+    @test parameters.R_sun == zeros(3)
     
     # construct STM
     STM_analytical = reshape(sol.u[end][7:42],6,6)'

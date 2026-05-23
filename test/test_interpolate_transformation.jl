@@ -30,12 +30,20 @@ test_interpolate_ephem = function ()
         false,
         parameters.TU,
     )
+    transformation_interp_rescaled = HighFidelityEphemerisModel.InterpolatedTransformation(
+        ets,
+        "J2000",
+        "MOON_PA",
+        true,
+        parameters.TU,
+    )
 
     # evaluate position
     ets_test = range(et0 + 1e-4, et0 + 30 * 86400.0 - 1e-4, 12)
     Ts_spice = [SPICE.pxform("J2000", "MOON_PA", et) for et in ets_test]
 
     Ts_interp = [HighFidelityEphemerisModel.pxform(transformation_interp, et) for et in ets_test]
+    Ts_interp_rescaled = [HighFidelityEphemerisModel.pxform(transformation_interp_rescaled, et) for et in ets_test]
 
     for (T_spice, T_interp) in zip(Ts_spice, Ts_interp)
         # println("SPICE T:")
@@ -44,6 +52,9 @@ test_interpolate_ephem = function ()
         # print_matrix(T_interp)
         # println()
         @test T_spice ≈ T_interp atol=1e-11
+    end
+    for (T_spice, T_interp_rescaled) in zip(Ts_spice, Ts_interp_rescaled)
+        @test T_spice ≈ T_interp_rescaled atol=1e-11
     end
 end
 
