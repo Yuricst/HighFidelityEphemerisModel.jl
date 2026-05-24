@@ -85,6 +85,13 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
 
     # evaluate Jacobian
     jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Interp(x0, 0.0, parameters, 0.0)
+    @test all(iszero, parameters.Rs)
+    @test all(iszero, parameters.R_sun)
+
+    dx_stm = zeros(42)
+    HighFidelityEphemerisModel.eom_stm_Nbody_Interp!(dx_stm, x0_stm, parameters, 0.0)
+    @test all(iszero, parameters.Rs)
+    @test all(iszero, parameters.R_sun)
 
     f_eval = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Interp!(f_eval, x0, parameters, 0.0)

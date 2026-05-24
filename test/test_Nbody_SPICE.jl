@@ -73,6 +73,13 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
 
     # evaluate Jacobian
     jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, 0.0, parameters, 0.0)
+    @test all(iszero, parameters.Rs)
+    @test all(iszero, parameters.R_sun)
+
+    dx_stm = zeros(42)
+    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!(dx_stm, x0_stm, parameters, 0.0)
+    @test all(iszero, parameters.Rs)
+    @test all(iszero, parameters.R_sun)
     # @show jac_analytical
 
     f_eval = zeros(6)
