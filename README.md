@@ -4,7 +4,7 @@
 
 
 <p align="center">
-  <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml">
+  <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml">
     <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml/badge.svg" alt="test workflow"/>
   </a>
   <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a>
