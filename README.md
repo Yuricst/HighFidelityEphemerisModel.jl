@@ -4,11 +4,13 @@
 
 
 <p align="center">
-  <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml/badge.svg" alt="test workflow"/>
+  <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml">
+    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml/badge.svg" alt="test workflow"/>
+  </a>
   <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a>
 </p>
 
-`HighFidelityEphemerisModel.jl` provides equations of motion for high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem (i.e. its solvers, parallelism, etc.) and other utilities for astrodynamics.
+`HighFidelityEphemerisModel.jl` provides equations of motion for high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem [...]
 
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
