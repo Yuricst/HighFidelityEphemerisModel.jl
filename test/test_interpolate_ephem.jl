@@ -30,15 +30,25 @@ test_interpolate_ephem = function ()
         false,
         parameters.TU
     )
+    ephem_interp_rescaled = HighFidelityEphemerisModel.InterpolatedEphemeris(
+        naif_ids[2],
+        ets,
+        rvs,
+        true,
+        parameters.TU
+    )
 
     # evaluate position
     ets_test = range(et0 + 1e-4, et0 + 30 * 86400.0 - 1e-4, 200)
 
     state_interp = zeros(6, length(ets_test))
+    state_interp_rescaled = zeros(6, length(ets_test))
     state_spice = zeros(6, length(ets_test))
     diff = zeros(6, length(ets_test))
+    diff_rescaled = zeros(6, length(ets_test))
     for (idx,et_test) in enumerate(ets_test)
         state_interp[:,idx] = HighFidelityEphemerisModel.get_state(ephem_interp, et_test)
+        state_interp_rescaled[:,idx] = HighFidelityEphemerisModel.get_state(ephem_interp_rescaled, et_test)
 
         state_spice[:,idx], _ = spkezr(
             naif_ids[2],
@@ -48,6 +58,7 @@ test_interpolate_ephem = function ()
             naif_ids[1]
         )
         diff[:,idx] = state_spice[:,idx] - state_interp[:,idx]
+        diff_rescaled[:,idx] = state_spice[:,idx] - state_interp_rescaled[:,idx]
     end
     # @show state_spice[:,end]
     # @show state_interp[:,end]
@@ -55,6 +66,8 @@ test_interpolate_ephem = function ()
     # @show maximum(abs.(diff[4:6,:]))
     @test maximum(abs.(diff[1:3,:])) < 1e-5     # this is in km
     @test maximum(abs.(diff[4:6,:])) < 1e-10    # this is in km/s
+    @test maximum(abs.(diff_rescaled[1:3,:])) < 1e-5
+    @test maximum(abs.(diff_rescaled[4:6,:])) < 1e-10
 end
 
 test_interpolate_ephem()
