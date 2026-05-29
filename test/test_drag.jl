@@ -1,14 +1,56 @@
 """Tests for atmospheric drag perturbation"""
 
+using ForwardDiff
 using LinearAlgebra
 using OrdinaryDiffEq
 using SPICE
 using Test
 
 if !@isdefined(HighFidelityEphemerisModel)
+    include(joinpath(@__DIR__, "utils.jl"))
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
+    furnsh_kernels()
 end
 
+
+function _drag_stm_parameters(et0)
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    f_density = HighFidelityEphemerisModel.harris_priester_f_density()
+    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
+        nmax = 2,
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+end
+
+
+function _numerical_stm(x0, tspan, parameters; h=1e-7)
+    STM_numerical = zeros(6, 6)
+    for i = 1:6
+        x0_plus = copy(x0)
+        x0_plus[i] += h
+        sol_ptrb = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0_plus, tspan, parameters),
+            Vern8(), reltol=1e-14, abstol=1e-14,
+        )
+
+        x0_min = copy(x0)
+        x0_min[i] -= h
+        sol_ptrb_min = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0_min, tspan, parameters),
+            Vern8(), reltol=1e-14, abstol=1e-14,
+        )
+
+        STM_numerical[:, i] = (sol_ptrb.u[end][1:6] - sol_ptrb_min.u[end][1:6]) / (2 * h)
+    end
+    return STM_numerical
+end
 
 function test_get_drag_coefficient()
     DU = 6378.0
@@ -76,8 +118,8 @@ function test_eom_Nbody_SPICE_drag()
 
     prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-    u_check = [-0.6474833041677026, 0.932094603810321, -0.0061648570310309965,
-               -0.7821138078881879, -0.4957243892672692, -0.0074455370225118885]
+    u_check = [-0.6474801648845774, 0.9320966427600279, -0.006164827146379468,
+               -0.7821155901146892, -0.49572178306666, -0.007445553992251351]
     @test norm(sol.u[end] - u_check) < 1e-11
 
     et = parameters.et0
@@ -105,8 +147,127 @@ function test_harris_priester_model()
 end
 
 
+function test_harris_priester_forwarddiff()
+    h = 319.0
+    d_fd = ForwardDiff.derivative(h -> HighFidelityEphemerisModel.HarrisPriesterModel(h), h)
+    h_step = 1e-3
+    d_num = (
+        HighFidelityEphemerisModel.HarrisPriesterModel(h + h_step) -
+        HighFidelityEphemerisModel.HarrisPriesterModel(h - h_step)
+    ) / (2 * h_step)
+    @test d_fd ≈ d_num rtol=1e-6
+
+    f_density = HighFidelityEphemerisModel.harris_priester_f_density(6378.0; use_min=true)
+    r_km = [6378.0 + h, 0.0, 0.0]
+    grad_fd = ForwardDiff.gradient(r -> f_density(0.0, r), r_km)
+    @test all(isfinite, grad_fd)
+    @test grad_fd[2] ≈ 0.0 atol=1e-20
+    @test grad_fd[3] ≈ 0.0 atol=1e-20
+end
+
+
+function test_eom_jacobian_fd_drag(;verbose=false)
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    naif_frame = "J2000"
+    abcorr = "NONE"
+    DU = 6378.0
+
+    et0 = str2et("2020-01-01T00:00:00")
+    f_density = HighFidelityEphemerisModel.harris_priester_f_density()
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
+        nmax = 2,
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+
+    x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
+    eom = HighFidelityEphemerisModel.eom_NbodySH_SPICE
+    jac_numerical_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
+        eom, x0, 0.0, parameters, 0.0
+    )
+    @test all(isfinite, jac_numerical_fd)
+
+    f_eval = eom(x0, parameters, 0.0)
+    jac_numerical = zeros(6, 6)
+    h = 1e-8
+    for i = 1:6
+        x0_copy = copy(x0)
+        x0_copy[i] += h
+        jac_numerical[:, i] = (eom(x0_copy, parameters, 0.0) - f_eval) / h
+    end
+
+    if verbose
+        println("Numerical Jacobian:")
+        print_matrix(jac_numerical)
+        println()
+        println("ForwardDiff Jacobian:")
+        print_matrix(jac_numerical_fd)
+        println()
+        println("jac_numerical - jac_numerical_fd:")
+        print_matrix(jac_numerical - jac_numerical_fd)
+        println()
+    end
+    @test maximum(abs.(jac_numerical_fd - jac_numerical)) < 1e-6
+end
+
+
+function test_drag_stm(; verbose=false)
+    et0 = str2et("2030-01-01T00:00:00")
+    parameters = _drag_stm_parameters(et0)
+    x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+
+    # Short integration: linearized STM should match finite-difference reference closely.
+    tspan_short = (0.0, 0.1 * 3600 / parameters.TU)
+    sol_fd_short = solve(
+        ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan_short, parameters),
+        Vern8(), reltol=1e-14, abstol=1e-14,
+    )
+    STM_analytical_short = reshape(sol_fd_short.u[end][7:42], 6, 6)
+    STM_numerical_short = _numerical_stm(x0, tspan_short, parameters)
+    @test maximum(abs.(STM_analytical_short - STM_numerical_short)) < 1e-5
+
+    # Longer integration with smooth cubic Harris-Priester density.
+    tspan = (0.0, 3 * 3600 / parameters.TU)
+
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
+    sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
+    @test sol.retcode == SciMLBase.ReturnCode.Success
+
+    prob_fd = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)
+    sol_fd = solve(prob_fd, Vern8(), reltol=1e-14, abstol=1e-14)
+    @test sol_fd.retcode == SciMLBase.ReturnCode.Success
+    @test norm(sol.u[end] - sol_fd.u[end][1:6]) < 1e-9
+
+    STM_analytical = reshape(sol_fd.u[end][7:42], 6, 6)
+    STM_numerical = _numerical_stm(x0, tspan, parameters; h=1e-6)
+    if verbose
+        println("Analytical STM:")
+        print_matrix(STM_analytical)
+        println()
+        println("Numerical STM:")
+        print_matrix(STM_numerical)
+        println()
+        println("Diff:")
+        print_matrix(STM_analytical - STM_numerical)
+        println("Abs relative diff:")
+        print_matrix(abs.(STM_analytical - STM_numerical) ./ abs.(STM_numerical))
+    end
+    @test maximum(abs.(STM_analytical - STM_numerical)) < 1e-5
+end
+
+
 test_get_drag_coefficient()
 test_atmospheric_velocity()
 test_drag_opposes_relative_velocity()
 test_eom_Nbody_SPICE_drag()
 test_harris_priester_model()
+test_harris_priester_forwarddiff()
+test_eom_jacobian_fd_drag()
+test_drag_stm()

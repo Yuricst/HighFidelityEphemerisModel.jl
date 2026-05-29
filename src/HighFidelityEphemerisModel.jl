@@ -2,6 +2,7 @@ module HighFidelityEphemerisModel
 
 using Dierckx
 using ForwardDiff
+using Interpolations
 using LinearAlgebra
 using Printf
 using SPICE

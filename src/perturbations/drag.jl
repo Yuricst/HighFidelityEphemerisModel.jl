@@ -66,17 +66,15 @@ const _HARRIS_PRIESTER_DATA = [
 const _HARRIS_PRIESTER_HEIGHTS = _HARRIS_PRIESTER_DATA[:, 1]
 const _HARRIS_PRIESTER_RHO_MIN = _HARRIS_PRIESTER_DATA[:, 2]
 const _HARRIS_PRIESTER_RHO_MAX = _HARRIS_PRIESTER_DATA[:, 3]
-const _HARRIS_PRIESTER_SPLINE_MIN = Spline1D(
+const _HARRIS_PRIESTER_ITP_MIN = interpolate(
     _HARRIS_PRIESTER_HEIGHTS,
-    _HARRIS_PRIESTER_RHO_MIN;
-    k=3,
-    bc="error",
+    _HARRIS_PRIESTER_RHO_MIN,
+    FiniteDifferenceMonotonicInterpolation(),
 )
-const _HARRIS_PRIESTER_SPLINE_MAX = Spline1D(
+const _HARRIS_PRIESTER_ITP_MAX = interpolate(
     _HARRIS_PRIESTER_HEIGHTS,
-    _HARRIS_PRIESTER_RHO_MAX;
-    k=3,
-    bc="error",
+    _HARRIS_PRIESTER_RHO_MAX,
+    FiniteDifferenceMonotonicInterpolation(),
 )
 const _G_KM3_TO_KG_M3 = 1e-12
 
@@ -94,12 +92,16 @@ Interpolate the Harris-Priester atmospheric density look-up table.
 Atmospheric density in kg/m³.
 
 Table values are stored in g/km³ and converted via a factor of `1e-12`.
+Cubic Hermite splines (`FiniteDifferenceMonotonicInterpolation`) are used on the
+irregular height grid; segment lookup uses the primal altitude so the result is
+ForwardDiff-compatible.
 Altitude is clamped to the tabulated range [100, 1000] km.
 """
 function HarrisPriesterModel(h_km::Real; use_min::Bool=true)
-    h = clamp(float(h_km), _HARRIS_PRIESTER_HEIGHTS[1], _HARRIS_PRIESTER_HEIGHTS[end])
-    spline = use_min ? _HARRIS_PRIESTER_SPLINE_MIN : _HARRIS_PRIESTER_SPLINE_MAX
-    return Dierckx.evaluate(spline, h) * _G_KM3_TO_KG_M3
+    h_lo, h_hi = _HARRIS_PRIESTER_HEIGHTS[1], _HARRIS_PRIESTER_HEIGHTS[end]
+    h = min(max(h_km, h_lo), h_hi)
+    itp = use_min ? _HARRIS_PRIESTER_ITP_MIN : _HARRIS_PRIESTER_ITP_MAX
+    return itp(h) * _G_KM3_TO_KG_M3
 end
 
 
