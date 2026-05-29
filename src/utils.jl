@@ -80,6 +80,15 @@ function eom_jacobian_centraldiff(eom::Function, x, u, params, t; relstep::Float
 end
 
 
+function eom_jacobian_drag_safe(eom::Function, x, u, params, t)
+    if params.include_drag
+        return eom_jacobian_centraldiff(eom, x, u, params, t)
+    end
+
+    return eom_jacobian_fd(eom, x, u, params, t)
+end
+
+
 """
     eom_hessian_fd(eom::Function, x, u, params, t)
 

@@ -90,12 +90,11 @@ function test_eom_Nbody_SPICE_drag()
 end
 
 
-function _drag_stm_parameters()
+function _drag_stm_parameters(; f_density = (et, r_km) -> 1e-9)
     et0 = 0.0
     DU = 6378.0
     GMs = [398600.4415]
     naif_ids = ["399"]
-    f_density = (et, r_km) -> 1e-9
     return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids;
         include_drag = true,
@@ -106,7 +105,7 @@ function _drag_stm_parameters()
 end
 
 
-function _test_drag_stm_jacobian_consistency(eom!, eom, dfdx, eom_stm!)
+function _test_drag_stm_jacobian_consistency(eom!, eom, dfdx, eom_stm!, eom_stm_fd!)
     parameters = _drag_stm_parameters()
     x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     x0_stm = [x0; reshape(I(6), 36)]
@@ -124,6 +123,11 @@ function _test_drag_stm_jacobian_consistency(eom!, eom, dfdx, eom_stm!)
     @test maximum(abs.(jac[4:6, 4:6])) > 1e-8
     @test maximum(abs.(jac - jac_expected)) < 1e-7
     @test maximum(abs.(reshape(dx_stm[7:42], 6, 6)' - jac_expected)) < 1e-7
+
+    dx_stm_fd = zeros(42)
+    eom_stm_fd!(dx_stm_fd, x0_stm, parameters, t)
+    @test dx_stm_fd[1:6] ≈ dx_state atol=1e-12
+    @test maximum(abs.(reshape(dx_stm_fd[7:42], 6, 6)' - jac_expected)) < 1e-7
 end
 
 
@@ -133,13 +137,37 @@ function test_drag_stm_jacobian_consistency()
         HighFidelityEphemerisModel.eom_Nbody_SPICE,
         HighFidelityEphemerisModel.dfdx_Nbody_SPICE,
         HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!,
+        HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!,
     )
     _test_drag_stm_jacobian_consistency(
         HighFidelityEphemerisModel.eom_Nbody_Interp!,
         HighFidelityEphemerisModel.eom_Nbody_Interp,
         HighFidelityEphemerisModel.dfdx_Nbody_Interp,
         HighFidelityEphemerisModel.eom_stm_Nbody_Interp!,
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp_fd!,
     )
+end
+
+
+function test_drag_stm_fd_accepts_harris_priester_density()
+    parameters = _drag_stm_parameters(
+        f_density = HighFidelityEphemerisModel.harris_priester_f_density(),
+    )
+    x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+
+    for eom_stm! in (
+        HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!,
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp_fd!,
+        HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!,
+    )
+        dx_stm = zeros(42)
+        eom_stm!(dx_stm, x0_stm, parameters, 0.0)
+        @test all(isfinite.(dx_stm))
+    end
+
+    jac_sh = HighFidelityEphemerisModel.dfdx_NbodySH_Interp_fd(x0, 0.0, parameters, 0.0)
+    @test all(isfinite.(jac_sh))
 end
 
 
@@ -163,4 +191,5 @@ test_atmospheric_velocity()
 test_drag_opposes_relative_velocity()
 test_eom_Nbody_SPICE_drag()
 test_drag_stm_jacobian_consistency()
+test_drag_stm_fd_accepts_harris_priester_density()
 test_harris_priester_model()
