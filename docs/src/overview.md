@@ -12,7 +12,7 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
     ```julia
     x_stm_tf = sol.u[end]                       # concatenated state & STM (flattened)
     x_tf     = x_stm_tf[1:6]                    # final state [x,y,z,vx,vy,vz]
-    STM_tf   = reshape(sol.u[end][7:42],6,6)'   # final 6-by-6 STM
+    STM_tf   = reshape(sol.u[end][7:42],6,6)    # final 6-by-6 STM
     ```
 
 ## Dynamics model
@@ -70,7 +70,7 @@ The third-body perturbation due to body $i$, $\boldsymbol{a}_{\mathrm{3bd},i}$, 
 ```
 
 where $\boldsymbol{r}_i$ is the position vector of the perturbing body.
-In `HEFM.jl`, this term is implemented using Battin's $F(q)$ function:
+In `HighFidelityEphemerisModel.jl`, this term is implemented using Battin's $F(q)$ function:
 
 ```math
 \boldsymbol{a}_{\mathrm{3bd},i}(t) =
