@@ -60,7 +60,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! note
@@ -92,7 +91,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_NbodySH_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! note
@@ -120,7 +118,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! warning
@@ -154,7 +151,6 @@ x0_earth = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
 tspan = (0.0, 2 * 86400 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0_earth, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 Custom density models plug in the same way:
@@ -205,7 +201,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_NbodySH_Interp!, x0, tspan, parameters)
 sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! warning
