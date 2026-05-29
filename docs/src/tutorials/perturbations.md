@@ -60,7 +60,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! note
@@ -92,10 +91,9 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_NbodySH_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
-!!! note
+!!! warning
 
     Spherical harmonics require `eom_NbodySH_*` functions. The `Nbody` variants do not evaluate harmonic terms.
 
@@ -120,7 +118,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! warning
@@ -154,14 +151,9 @@ x0_earth = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
 tspan = (0.0, 2 * 86400 / parameters.TU)
 prob = ODEProblem(eom_Nbody_SPICE!, x0_earth, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
-Custom density models plug in the same way:
-
-```julia
-f_density = (et, r_km) -> 1e-12   # constant density, kg/m^3
-```
+`f_density` is expected to be a function with signature `f_density(et, r_km)`, where `et` is the epoch in ephemeris seconds and `r_km` is the position vector in the integrator's frame in km.
 
 !!! note
 
@@ -205,7 +197,6 @@ parameters = HighFidelityEphemerisModelParameters(
 tspan = (0.0, 6 * 3600 / parameters.TU)
 prob = ODEProblem(eom_NbodySH_Interp!, x0, tspan, parameters)
 sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
-sol.u[end]
 ```
 
 !!! warning
