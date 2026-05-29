@@ -32,6 +32,14 @@ function eom_Nbody_SPICE!(dx, x, params, t)
             dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
         end
     end
+
+    if params.include_drag
+        et = params.et0 + t * params.TU
+        r_km = x[1:3] * params.DU
+        rho = params.f_density(et, r_km)
+        v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
+        dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
+    end
     return nothing
 end
 
@@ -65,6 +73,14 @@ function eom_Nbody_SPICE(x, params, t)
         if ID == "10" && params.include_srp
             dx[4:6] += srp_cannonball(x[1:3], pos_3body, params.k_srp_cannonball)
         end
+    end
+
+    if params.include_drag
+        et = params.et0 + t * params.TU
+        r_km = x[1:3] * params.DU
+        rho = params.f_density(et, r_km)
+        v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
+        dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
     end
     return dx
 end
