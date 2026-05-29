@@ -57,6 +57,30 @@ end
 
 
 """
+    eom_jacobian_centraldiff(eom::Function, x, u, params, t)
+
+Evaluate Jacobian of equations of motion using central finite differences.
+This is used for drag-enabled dynamics whose density callbacks need not accept
+ForwardDiff dual numbers.
+"""
+function eom_jacobian_centraldiff(eom::Function, x, u, params, t; relstep::Float64 = cbrt(eps(Float64)))
+    f0 = eom(x, params, t)
+    jac = zeros(eltype(f0), length(f0), length(x))
+
+    for i in eachindex(x)
+        h = relstep * max(abs(Float64(x[i])), 1.0)
+        x_plus = copy(x)
+        x_minus = copy(x)
+        x_plus[i] += h
+        x_minus[i] -= h
+        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2h)
+    end
+
+    return jac
+end
+
+
+"""
     eom_hessian_fd(eom::Function, x, u, params, t)
 
 Evaluate Hessian of equations of motion using ForwardDiff.

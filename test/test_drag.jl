@@ -90,6 +90,59 @@ function test_eom_Nbody_SPICE_drag()
 end
 
 
+function _drag_stm_parameters()
+    et0 = 0.0
+    DU = 6378.0
+    GMs = [398600.4415]
+    naif_ids = ["399"]
+    f_density = (et, r_km) -> 1e-9
+    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids;
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+end
+
+
+function _test_drag_stm_jacobian_consistency(eom!, eom, dfdx, eom_stm!)
+    parameters = _drag_stm_parameters()
+    x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+    t = 0.0
+
+    dx_state = zeros(6)
+    eom!(dx_state, x0, parameters, t)
+
+    dx_stm = zeros(42)
+    eom_stm!(dx_stm, x0_stm, parameters, t)
+    @test dx_stm[1:6] ≈ dx_state atol=1e-12
+
+    jac = dfdx(x0, 0.0, parameters, t)
+    jac_expected = HighFidelityEphemerisModel.eom_jacobian_fd(eom, x0, 0.0, parameters, t)
+    @test maximum(abs.(jac[4:6, 4:6])) > 1e-8
+    @test maximum(abs.(jac - jac_expected)) < 1e-7
+    @test maximum(abs.(reshape(dx_stm[7:42], 6, 6)' - jac_expected)) < 1e-7
+end
+
+
+function test_drag_stm_jacobian_consistency()
+    _test_drag_stm_jacobian_consistency(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE!,
+        HighFidelityEphemerisModel.eom_Nbody_SPICE,
+        HighFidelityEphemerisModel.dfdx_Nbody_SPICE,
+        HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!,
+    )
+    _test_drag_stm_jacobian_consistency(
+        HighFidelityEphemerisModel.eom_Nbody_Interp!,
+        HighFidelityEphemerisModel.eom_Nbody_Interp,
+        HighFidelityEphemerisModel.dfdx_Nbody_Interp,
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp!,
+    )
+end
+
+
 function test_harris_priester_model()
     rho_min = HighFidelityEphemerisModel.HarrisPriesterModel(400.0; use_min=true)
     rho_max = HighFidelityEphemerisModel.HarrisPriesterModel(400.0; use_min=false)
@@ -109,4 +162,5 @@ test_get_drag_coefficient()
 test_atmospheric_velocity()
 test_drag_opposes_relative_velocity()
 test_eom_Nbody_SPICE_drag()
+test_drag_stm_jacobian_consistency()
 test_harris_priester_model()
