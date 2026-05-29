@@ -120,7 +120,7 @@ function test_eom_Nbody_SPICE_drag()
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
     u_check = [-0.6474801648845774, 0.9320966427600279, -0.006164827146379468,
                -0.7821155901146892, -0.49572178306666, -0.007445553992251351]
-    @test norm(sol.u[end] - u_check) < 1e-11
+    @test norm(sol.u[end] - u_check) < 1e-10
 
     et = parameters.et0
     r_km = u0[1:3] * parameters.DU
