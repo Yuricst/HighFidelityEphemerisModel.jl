@@ -93,7 +93,7 @@ prob = ODEProblem(eom_NbodySH_SPICE!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
-!!! note
+!!! warning
 
     Spherical harmonics require `eom_NbodySH_*` functions. The `Nbody` variants do not evaluate harmonic terms.
 
@@ -153,11 +153,7 @@ prob = ODEProblem(eom_Nbody_SPICE!, x0_earth, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
-Custom density models plug in the same way:
-
-```julia
-f_density = (et, r_km) -> 1e-12   # constant density, kg/m^3
-```
+`f_density` is expected to be a function with signature `f_density(et, r_km)`, where `et` is the epoch in ephemeris seconds and `r_km` is the position vector in the integrator's frame in km.
 
 !!! note
 
