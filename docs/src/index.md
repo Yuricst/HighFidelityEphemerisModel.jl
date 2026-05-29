@@ -36,3 +36,19 @@ pkg> dev ./path/to/HighFidelityEphemerisModel.jl
 (@v1.10) pkg> activate .
 (HighFidelityEphemerisModel) pkg> test
 ```
+
+Documentation is built and deployed to [GitHub Pages](https://yuricst.github.io/HighFidelityEphemerisModel.jl/) by the [docs workflow](https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml) on pushes to `main`/`master`. To build HTML locally:
+
+```julia-repl
+pkg> activate docs
+(docs) pkg> instantiate
+julia> include("make.jl")
+```
+
+
+## Tutorials
+
+- [Overview](@ref "Overview" overview.md)
+- [Basics](@ref "Basics" tutorials/basics.md)
+- [Perturbations](@ref "Perturbations" tutorials/perturbations.md)
+- [Jacobians & Hessians](@ref "Jacobians & Hessians" tutorials/jacobians_hessians.md)

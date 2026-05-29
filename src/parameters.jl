@@ -22,6 +22,11 @@ mutable struct HighFidelityEphemerisModelParameters
     k_srp_cannonball::Float64
     idx_sun::Int
 
+    include_drag::Bool
+    k_drag::Float64
+    omega_atm::Vector{Float64}
+    f_density::Union{Nothing,Function}
+
     f_jacobian::Union{Nothing,Function}
     Rs::Vector{Float64}
     R_sun::Vector{Float64}
@@ -43,6 +48,11 @@ function Base.show(io::IO, params::HighFidelityEphemerisModelParameters)
     if params.include_srp
         @printf("    k_srp_cannonball : %1.8f\n", params.k_srp_cannonball)
         @printf("    idx_sun          : %d\n", params.idx_sun)
+    end
+    @printf("    include_drag     : %s\n", params.include_drag)
+    if params.include_drag
+        @printf("    k_drag           : %1.8f\n", params.k_drag)
+        @printf("    omega_atm        : [%1.8f, %1.8f, %1.8f]\n", params.omega_atm...)
     end
 end
 
@@ -67,6 +77,11 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `srp_Cr::Float64`: SRP radiation pressure coefficient
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
 - `srp_P0::Float64`: SRP power in W
+- `include_drag::Bool`: whether to include atmospheric drag terms
+- `drag_Cd::Float64`: drag coefficient, dimensionless
+- `drag_Am::Float64`: drag area-to-mass ratio in m^2/kg
+- `f_density`: callback `(et, r_km) -> rho` returning atmospheric density in kg/m^3
+- `omega_atm::Vector{Float64}`: atmospheric rotation rate in rad/s, in the inertial frame
 - `nu::Int`: control dimension for vector to be constructed within parameters struct
 - `use_canonical_scales::Bool`: whether to use canonical scales for the problem
 """
@@ -87,6 +102,11 @@ function HighFidelityEphemerisModelParameters(
     srp_Cr::Float64 = 1.15,
     srp_Am::Float64 = 0.002,
     srp_P0::Float64 = 4.56e-6,
+    include_drag::Bool = false,
+    drag_Cd::Float64 = 2.2,
+    drag_Am::Float64 = 0.01,
+    f_density::Union{Nothing,Function} = nothing,
+    omega_atm::Vector{Float64} = [0.0, 0.0, 7.2921159e-5],
     nu::Int = 4,
     use_canonical_scales::Bool = true,
 )
@@ -161,6 +181,16 @@ function HighFidelityEphemerisModelParameters(
         idx_sun = 0
     end
 
+    # drag parameters
+    if include_drag
+        if isnothing(f_density)
+            @error "f_density must be provided when drag is included"
+        end
+        k_drag = get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
+    else
+        k_drag = 0.0
+    end
+
     return HighFidelityEphemerisModelParameters(
         et0, DU, TU, VU,
         GMs, mus, naif_ids, naif_frame, abcorr,
@@ -172,6 +202,10 @@ function HighFidelityEphemerisModelParameters(
         include_srp,
         k_srp_cannonball,
         idx_sun,
+        include_drag,
+        k_drag,
+        omega_atm,
+        f_density,
         f_jacobian, Rs, zeros(3),
         nothing,        # adtype, defaults to nothing
         nothing,        # jacobian_cache, defaults to nothing

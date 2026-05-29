@@ -25,7 +25,7 @@ Pages   = [
 ]
 ```
 
-## Jacobians & Hessians
+## Jacobian and Hessian routines
 ```@autodocs
 Modules = [HighFidelityEphemerisModel]
 Order   = [:function, :type]
@@ -34,15 +34,16 @@ Pages   = [
 ]
 ```
 
-## Perturbations
+## Perturbation routines
 
 ```@autodocs
 Modules = [HighFidelityEphemerisModel]
 Order   = [:function, :type]
 Pages   = [
   "perturbations/spherical_harmonics.jl",
-  "perturbations/third_body.jl", 
-  "perturbations/solar_radiation_pressure.jl"
+  "perturbations/third_body.jl",
+  "perturbations/solar_radiation_pressure.jl",
+  "perturbations/drag.jl",
 ]
 ```
 

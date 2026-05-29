@@ -16,6 +16,7 @@ end
 
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
+    include("test_drag.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
     include("test_Nbody_ensemble.jl")
@@ -34,4 +35,10 @@ end
 
 @testset "Hessian evaluation     " begin
     include("test_hessian_fd.jl")
+end
+
+if get(ENV, "JULIA_COVERAGE", "") == "true"
+    @testset "Module coverage        " begin
+        include("coverage.jl")
+    end
 end
