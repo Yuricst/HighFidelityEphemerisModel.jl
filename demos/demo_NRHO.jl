@@ -64,7 +64,7 @@ labels = ["x, 1e4 km", "y, 1e4 km", "z, 1e4 km", "vx, km/s", "vy, km/s", "vz, km
 SCALE_PLOT = 1 / 1e4
 fontsize = 18
 
-fig = Figure(size=(1600,500))
+fig = Figure(size=(1500,500))
 ax = Axis3(fig[1:2,1]; aspect=:data, xlabel="x, 1e4 km", ylabel="y, 1e4 km", zlabel="z, 1e4 km",
     xlabelsize = fontsize, ylabelsize = fontsize, zlabelsize = fontsize,
     xticklabelsize = fontsize, yticklabelsize = fontsize, zticklabelsize = fontsize,

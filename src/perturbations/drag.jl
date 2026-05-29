@@ -106,7 +106,7 @@ end
 """
     harris_priester_f_density(R_earth_km=6378.0; use_min=true)
 
-Build an `f_density` callback using the Harris-Priester model.
+Build an `f_density` callback using the Harris-Priester model that returns the density in kg/m^3
 
 # Arguments
 - `R_earth_km`: reference Earth radius used to compute altitude from `norm(r_km)`, in km
@@ -129,7 +129,7 @@ end
 """
     get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
 
-Get the drag coefficient in canonical units for atmospheric drag.
+Get the drag coefficient in canonical units [1/DU] / [kg/m^3]
 
 # Arguments
 - `DU`: canonical distance unit, in km
@@ -139,7 +139,7 @@ Get the drag coefficient in canonical units for atmospheric drag.
 - `drag_Am`: area-to-mass ratio in units of `m^2/kg`
 """
 function get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
-    k_drag = 0.5 * (drag_Cd * drag_Am / 1000) * (VU * 1000)^2 * (TU^2 / DU)
+    k_drag = 1e3 * DU * drag_Cd * drag_Am
     return k_drag
 end
 
@@ -174,8 +174,5 @@ Compute acceleration due to atmospheric drag in the inertial frame.
 function drag(r, v, v_atm, rho, k_drag)
     v_rel = v - v_atm
     v_rel_norm = norm(v_rel)
-    if v_rel_norm == 0.0
-        return zeros(3)
-    end
     return -k_drag * rho * v_rel_norm * v_rel
 end
