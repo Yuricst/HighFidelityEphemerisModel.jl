@@ -51,7 +51,7 @@ sol = solve(ode, Tsit5(), reltol=1e-11, abstol=1e-12)
 kep_hist = hcat([AstrodynamicsCore.rv2kep(rv, GMs[1]) for rv in sol.u]...)
 
 # plot
-labels = ["a, km", "e", "i, deg", "Ω, deg", "ω, deg", "M, deg"]
+labels = ["a, km", "e", "i, deg", "Ω, deg", "ω, deg", "θ, deg"]
 multipliers = [1.0, 1.0, 180/π, 180/π, 180/π, 180/π]
 fig_elements = Figure(size=(1200,800))
 for i in 1:6

@@ -1,6 +1,15 @@
 """Atmospheric drag perturbation"""
 
-
+# % Interpolate look-up table for Harris-Priester model
+# % for atmospheric density.
+# % Columns are:
+# %    h [km], rho_min [g/km^3]k, rho_max [g/km^3]
+# % Interpolation is done based on input h [km],
+# % and returns density in [g/km^3].
+# % 
+# % Conversions of density
+# % To convert from [g/km^3] to [kg/m^3], multiply by 1e12.
+# % 
 const _HARRIS_PRIESTER_DATA = [
     100 497400.0 497400.0
     120 24900.0 24900.0
@@ -159,7 +168,7 @@ Compute acceleration due to atmospheric drag in the inertial frame.
 - `r`: position of the spacecraft, in canonical units (unused, kept for API symmetry)
 - `v`: velocity of the spacecraft, in canonical units
 - `v_atm`: velocity of the atmosphere, in canonical units
-- `rho`: atmospheric density, in kg/m^3
+- `rho`: atmospheric density, in kg/DU^3
 - `k_drag`: drag coefficient in canonical units
 """
 function drag(r, v, v_atm, rho, k_drag)
