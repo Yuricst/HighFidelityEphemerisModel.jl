@@ -170,7 +170,7 @@ function test_eom_stm_NbodySH_Interp(;verbose=false)
     @test norm(sol.u[end][1:6] - sol_fd.u[end][1:6]) < 1e-12
 
     # construct numerical STM
-    STM_analytical = reshape(sol_fd.u[end][7:42],6,6)'
+    STM_analytical = reshape(sol_fd.u[end][7:42],6,6)
     STM_numerical = zeros(6,6)
     h = 1e-7
     for i = 1:6

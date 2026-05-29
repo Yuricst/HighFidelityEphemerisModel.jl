@@ -105,7 +105,7 @@ function eom_stm_Nbody_Interp!(dx_stm, x_stm, params, t)
     else
         A = params.f_jacobian(x_stm[1:6], params.mus, Rs)
     end
-    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)')', 36)
+    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
     return nothing
 end
 
@@ -150,7 +150,7 @@ function eom_stm_Nbody_Interp_fd!(dx_stm, x_stm, params, t)
     dx_stm[1:6] = eom_Nbody_Interp(x_stm[1:6], params, t)
     A = eom_jacobian_fd(eom_Nbody_Interp, x_stm[1:6], 0.0, params, t)
     A[1:3,4:6] .= I(3)   # force identity for linear map
-    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)')', 36)
+    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
     return nothing
 end
 
