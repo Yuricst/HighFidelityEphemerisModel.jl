@@ -106,3 +106,10 @@ x0_stm = [x0; reshape(I(6),36)]
 prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
+
+
+To locally build the documentation, run:
+
+```
+julia --project=. -e 'using Pkg; Pkg.add("Documenter"); include("docs/make.jl")'
+```
