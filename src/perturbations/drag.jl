@@ -129,7 +129,7 @@ end
 """
     get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
 
-Get the drag coefficient in canonical units [1/DU] / [kg/m^3]
+Get the drag coefficient `0.5 C_D A/m * 10^3 DU` in canonical units `[1/DU] / [kg/m^3]`
 
 # Arguments
 - `DU`: canonical distance unit, in km
@@ -139,7 +139,7 @@ Get the drag coefficient in canonical units [1/DU] / [kg/m^3]
 - `drag_Am`: area-to-mass ratio in units of `m^2/kg`
 """
 function get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
-    k_drag = 1e3 * DU * drag_Cd * drag_Am
+    k_drag = 1e3 * DU * 0.5 * drag_Cd * drag_Am
     return k_drag
 end
 

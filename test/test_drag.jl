@@ -19,16 +19,14 @@ function test_get_drag_coefficient()
     drag_Am = 0.01
     rho = 1e-12
     v_can = [1.0, 0.2, -0.1]
+    v_atm = zeros(3)
 
     k_drag = HighFidelityEphemerisModel.get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
-    v_atm = zeros(3)
-    a_can = HighFidelityEphemerisModel.drag(zeros(3), v_can, v_atm, rho, k_drag)
+    a_can = HighFidelityEphemerisModel.drag(zeros(3), v_can, v_atm, rho, k_drag) * DU/TU^2
 
-    v_km = v_can * VU
-    v_m = v_km * 1000.0
-    a_m = -0.5 * rho * drag_Cd * drag_Am * norm(v_m) * v_m
-    a_km = a_m / 1000.0
-    a_can_expected = a_km * TU^2 / DU
+    v_m = v_can * VU * 1e3                                      # [m/s]
+    a_m = -0.5 * rho * drag_Cd * drag_Am * norm(v_m) * v_m      # [m/s^2]
+    a_can_expected = a_m / 1e3                                  # [km/s^2]
 
     @test a_can ≈ a_can_expected atol=1e-12
 end
