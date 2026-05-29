@@ -22,7 +22,6 @@ naif_frame = "J2000"
 abcorr = "NONE"
 et0 = str2et("2026-01-05T00:00:00")
 
-naif_ids = ["399",]# "301", "10"]   # Earth-centered; Sun for optional third-body / SRP
 naif_ids = ["399", "301", "10"]   # Earth-centered; Sun for optional third-body / SRP
 GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
 DU = 6378.0
