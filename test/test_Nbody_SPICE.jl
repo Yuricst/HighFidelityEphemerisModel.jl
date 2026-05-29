@@ -127,7 +127,7 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
     @test parameters.R_sun == R_sun_initial
     
     # construct STM
-    STM_analytical = reshape(sol.u[end][7:42],6,6)'
+    STM_analytical = reshape(sol.u[end][7:42],6,6)
     STM_numerical = zeros(6,6)
     h = 1e-8
     for i = 1:6

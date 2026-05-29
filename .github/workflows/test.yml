@@ -33,6 +33,8 @@ jobs:
           curl -L -o ./spice/test/de440.bsp "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440.bsp"
           curl -L -o ./spice/test/gm_de440.tpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/gm_de440.tpc"
           curl -L -o ./spice/test/moon_pa_de440_200625.bpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/moon_pa_de440_200625.bpc"
+          curl -L -o ./spice/test/earth_latest_high_prec.bpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc"
+          curl -L -o ./spice/test/pck00011.tpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/pck00011.tpc"
           curl -L -o ./spice/test/moon_de440_250416.tf "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/satellites/moon_de440_250416.tf"
           curl -L -o ./spice/test/receding_horiz_3189_1burnApo_DiffCorr_15yr.bsp "https://naif.jpl.nasa.gov/pub/naif/misc/MORE_PROJECTS/DSG/receding_horiz_3189_1burnApo_DiffCorr_15yr.bsp"
       - uses: julia-actions/setup-julia@v2

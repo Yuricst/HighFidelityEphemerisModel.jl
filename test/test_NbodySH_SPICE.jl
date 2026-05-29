@@ -150,18 +150,18 @@ function test_eom_stm_NbodySH_SPICE(;verbose=false)
     sol_fd = solve(prob_fd, Vern8(), reltol=1e-14, abstol=1e-14)
     @test sol_fd.retcode == SciMLBase.ReturnCode.Success
 
-    # plot trajectories
-    if verbose
-        fig = Figure(size=(800,800))
-        ax3d = Axis3(fig[1,1]; aspect=:data)
-        lines!(ax3d, Array(sol)[1,:], Array(sol)[2,:], Array(sol)[3,:], color=:blue)
-        lines!(ax3d, Array(sol_fd)[1,:], Array(sol_fd)[2,:], Array(sol_fd)[3,:], color=:green)
-        display(fig)
-    end
+    # # plot trajectories
+    # if verbose
+    #     fig = Figure(size=(800,800))
+    #     ax3d = Axis3(fig[1,1]; aspect=:data)
+    #     lines!(ax3d, Array(sol)[1,:], Array(sol)[2,:], Array(sol)[3,:], color=:blue)
+    #     lines!(ax3d, Array(sol_fd)[1,:], Array(sol_fd)[2,:], Array(sol_fd)[3,:], color=:green)
+    #     display(fig)
+    # end
     @test norm(sol.u[end][1:6] - sol_fd.u[end][1:6]) < 1e-11
 
     # construct numerical STM
-    STM_analytical = reshape(sol_fd.u[end][7:42],6,6)'
+    STM_analytical = reshape(sol_fd.u[end][7:42],6,6)
     STM_numerical = zeros(6,6)
     h = 1e-7
     for i = 1:6
