@@ -1,7 +1,7 @@
 name = "HighFidelityEphemerisModel"
 uuid = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
 authors = ["@yuricst"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 Dierckx = "39dd38d3-220a-591b-8e3c-4c3a8c710a94"
