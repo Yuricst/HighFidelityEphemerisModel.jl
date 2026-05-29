@@ -2,9 +2,7 @@
 
 `HighFidelityEphemerisModel.jl` is a minimal implementation of high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem (i.e. its solvers, parallelism, etc.).
 
-<p align="center">
-  <img alt="Lunar NRHO illustration" src="../../../assets/demo_NRHO_deviations.png" width="1000">
-</p>
+![Lunar NRHO illustration](https://raw.githubusercontent.com/Yuricst/HighFidelityEphemerisModel.jl/main/demos/plots/demo_NRHO_deviations.png)
 
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
