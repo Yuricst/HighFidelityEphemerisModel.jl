@@ -30,6 +30,33 @@ function _drag_stm_parameters(et0)
 end
 
 
+function _drag_nbody_parameters(et0; interpolate=false)
+    naif_ids = ["399"]
+    GMs = [398600.4415]
+    DU = 6378.0
+    f_density = (et, r_km) -> 1e-9
+    if interpolate
+        return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+            et0, DU, GMs, naif_ids, "J2000", "NONE";
+            interpolate_ephem_span = [et0, et0 + 3600.0],
+            interpolation_time_step = 600.0,
+            include_drag = true,
+            drag_Cd = 2.2,
+            drag_Am = 0.01,
+            f_density = f_density,
+        )
+    end
+
+    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, "J2000", "NONE";
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+end
+
+
 function _numerical_stm(x0, tspan, parameters; h=1e-7)
     STM_numerical = zeros(6, 6)
     for i = 1:6
@@ -51,6 +78,25 @@ function _numerical_stm(x0, tspan, parameters; h=1e-7)
     end
     return STM_numerical
 end
+
+
+function _test_drag_symbolic_stm_consistency(eom, eom_stm!, dfdx, parameters)
+    x0 = [1.05, 0.01, 0.02, 0.0, 0.97, 0.03]
+    x0_stm = [x0; reshape(I(6), 36)]
+    t = 0.25
+
+    dx = eom(x0, parameters, t)
+    dx_stm = similar(x0_stm)
+    eom_stm!(dx_stm, x0_stm, parameters, t)
+    @test dx_stm[1:6] ≈ dx atol=1e-12
+
+    A_stm = reshape(dx_stm[7:42], 6, 6)
+    A = dfdx(x0, 0.0, parameters, t)
+    A_fd = HighFidelityEphemerisModel.eom_jacobian_fd(eom, x0, 0.0, parameters, t)
+    @test maximum(abs.(A_stm - A)) < 1e-12
+    @test maximum(abs.(A - A_fd)) < 1e-5
+end
+
 
 function test_get_drag_coefficient()
     DU = 6378.0
@@ -166,6 +212,26 @@ function test_harris_priester_forwarddiff()
 end
 
 
+function test_drag_symbolic_stm_Nbody()
+    et0 = 0.0
+    parameters_spice = _drag_nbody_parameters(et0)
+    _test_drag_symbolic_stm_consistency(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE,
+        HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!,
+        HighFidelityEphemerisModel.dfdx_Nbody_SPICE,
+        parameters_spice,
+    )
+
+    parameters_interp = _drag_nbody_parameters(et0; interpolate=true)
+    _test_drag_symbolic_stm_consistency(
+        HighFidelityEphemerisModel.eom_Nbody_Interp,
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp!,
+        HighFidelityEphemerisModel.dfdx_Nbody_Interp,
+        parameters_interp,
+    )
+end
+
+
 function test_eom_jacobian_fd_drag(;verbose=false)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
@@ -269,5 +335,6 @@ test_drag_opposes_relative_velocity()
 test_eom_Nbody_SPICE_drag()
 test_harris_priester_model()
 test_harris_priester_forwarddiff()
+test_drag_symbolic_stm_Nbody()
 test_eom_jacobian_fd_drag()
 test_drag_stm()
