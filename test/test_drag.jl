@@ -30,23 +30,11 @@ function _drag_stm_parameters(et0)
 end
 
 
-function _drag_nbody_parameters(et0; interpolate=false)
+function _drag_nbody_parameters(et0)
     naif_ids = ["399"]
     GMs = [398600.4415]
     DU = 6378.0
     f_density = (et, r_km) -> 1e-9
-    if interpolate
-        return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-            et0, DU, GMs, naif_ids, "J2000", "NONE";
-            interpolate_ephem_span = [et0, et0 + 3600.0],
-            interpolation_time_step = 600.0,
-            include_drag = true,
-            drag_Cd = 2.2,
-            drag_Am = 0.01,
-            f_density = f_density,
-        )
-    end
-
     return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, "J2000", "NONE";
         include_drag = true,
@@ -222,7 +210,7 @@ function test_drag_symbolic_stm_Nbody()
         parameters_spice,
     )
 
-    parameters_interp = _drag_nbody_parameters(et0; interpolate=true)
+    parameters_interp = _drag_nbody_parameters(et0)
     _test_drag_symbolic_stm_consistency(
         HighFidelityEphemerisModel.eom_Nbody_Interp,
         HighFidelityEphemerisModel.eom_stm_Nbody_Interp!,
