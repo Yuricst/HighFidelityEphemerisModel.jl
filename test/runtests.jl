@@ -35,3 +35,7 @@ end
 @testset "Hessian evaluation     " begin
     include("test_hessian_fd.jl")
 end
+
+@testset "SPK generation helpers " begin
+    include("test_scp_solution_to_spk.jl")
+end
