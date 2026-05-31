@@ -68,9 +68,10 @@ function eom_jacobian_central(eom::Function, x, u, params, t; h=1e-6)
     for i in eachindex(x)
         x_plus = copy(x)
         x_minus = copy(x)
-        x_plus[i] += h
-        x_minus[i] -= h
-        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2 * h)
+        h_i = h * max(abs(x[i]), 1.0)
+        x_plus[i] += h_i
+        x_minus[i] -= h_i
+        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2 * h_i)
     end
     return jac
 end
