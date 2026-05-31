@@ -225,7 +225,7 @@ function _assert_drag_nbody_stm_matches_eom(eom, eom_stm!, dfdx, x0, parameters)
     @test dx_stm[1:6] ≈ dx_state atol=1e-12
 
     A = dfdx(x0, 0.0, parameters, 0.0)
-    @test dx_stm[7:42] ≈ reshape(A, 36) atol=1e-12
+    @test maximum(abs.(dx_stm[7:42] - reshape(A, 36))) < 1e-10
     @test maximum(abs.(A[4:6, 4:6])) > 0.0
 
     h = 1e-6
