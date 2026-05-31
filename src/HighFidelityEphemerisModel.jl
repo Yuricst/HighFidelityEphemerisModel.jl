@@ -28,7 +28,7 @@ include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
 
 include("events.jl")
-include("scp_solution_to_spk.jl")
+include("ode_sol_to_spk.jl")
 
 export eom_jacobian_fd, eom_hessian_fd
 
@@ -46,7 +46,7 @@ export set_sparse_jacobian_cache!
 export get_trueanomaly_event
 export HarrisPriesterModel, harris_priester_f_density
 
-export scp_solution_to_spk
+export ode_sol_to_spk
 export prepare_spk_output!
 export append_solution_segment_to_spk!
 export append_state_file_to_spk!

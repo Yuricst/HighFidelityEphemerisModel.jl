@@ -1,5 +1,5 @@
 """
-    scp_solution_to_spk.jl
+    ode_sol_to_spk.jl
 
 Single-file SCP-solution to MKSPK/SPK pipeline.
 
@@ -12,9 +12,9 @@ Single-file SCP-solution to MKSPK/SPK pipeline.
 Typical use from a notebook or script:
 
 ```julia
-include("../src/scp_solution_to_spk.jl")
+include("../src/ode_sol_to_spk.jl")
 
-result = scp_solution_to_spk(
+result = ode_sol_to_spk(
     sols,
     et0,
     parameters;
@@ -44,7 +44,7 @@ using Printf: @printf
 # =============================================================================
 
 """
-    scp_solution_to_spk(sols, et0, parameters; kwargs...) to NamedTuple
+    ode_sol_to_spk(sols, et0, parameters; kwargs...) to NamedTuple
 
 Generate a combined SPK/BSP file directly from SCP coast-arc solutions.
 
@@ -91,7 +91,7 @@ Important optional keywords:
 
 Returns a `NamedTuple` with paths/counts for the generated products.
 """
-function scp_solution_to_spk(
+function ode_sol_to_spk(
     sols,
     et0,
     parameters;
@@ -363,14 +363,14 @@ function scp_solution_to_spk(
 end
 
 """
-    scp_solution_to_spk(sols, parameters; kwargs...)
+    ode_sol_to_spk(sols, parameters; kwargs...)
 
 Convenience method when `parameters.et0` exists.
 """
-function scp_solution_to_spk(sols, parameters; kwargs...)
+function ode_sol_to_spk(sols, parameters; kwargs...)
     et0 = _get_et0_from_parameters(parameters)
     et0 === nothing && error("No `et0` argument was provided and `parameters` has no recognized ET0 property. Tried: et0, ET0, epoch0, et_start, t0_et.")
-    return scp_solution_to_spk(sols, Float64(et0), parameters; kwargs...)
+    return ode_sol_to_spk(sols, Float64(et0), parameters; kwargs...)
 end
 
 # =============================================================================
@@ -700,7 +700,7 @@ end
     write_full_setups_for_segments_exact!(nseg; ...)
 
 Backward-compatible wrapper for the older manual-count workflow. New code should
-prefer `write_full_setups_for_state_files_exact!` or `scp_solution_to_spk`.
+prefer `write_full_setups_for_state_files_exact!` or `ode_sol_to_spk`.
 """
 function write_full_setups_for_segments_exact!(
     nseg::Int;
@@ -1150,7 +1150,7 @@ end
 
 Write one MKSPK `STATES` file from one ODE/SCP solution segment. The solution
 is assumed to use nondimensional time and nondimensional states, consistent
-with `scp_solution_to_spk`.
+with `ode_sol_to_spk`.
 """
 function write_solution_segment_states_for_spk!(
     sol,
@@ -1498,7 +1498,7 @@ end
     infer_force_model_metadata(parameters)
 
 Best-effort metadata extraction from the model/scaling object. For production
-runs, pass `force_model_metadata=...` when calling `scp_solution_to_spk` if the
+runs, pass `force_model_metadata=...` when calling `ode_sol_to_spk` if the
 parameter object does not expose clear field names.
 """
 function infer_force_model_metadata(parameters)

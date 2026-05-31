@@ -38,7 +38,7 @@ end
 end
 
 @testset "SPK generation helpers " begin
-    include("test_scp_solution_to_spk.jl")
+    include("test_ode_sol_to_spk.jl")
 end
 
 if get(ENV, "JULIA_COVERAGE", "") == "true"
