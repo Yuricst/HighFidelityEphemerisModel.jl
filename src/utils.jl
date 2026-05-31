@@ -57,6 +57,26 @@ end
 
 
 """
+    eom_jacobian_central(eom::Function, x, u, params, t; h=1e-6)
+
+Evaluate Jacobian of equations of motion using central finite differences.
+The second argument `u` is a place-holder for control input.
+"""
+function eom_jacobian_central(eom::Function, x, u, params, t; h=1e-6)
+    f0 = eom(x, params, t)
+    jac = zeros(eltype(f0), length(f0), length(x))
+    for i in eachindex(x)
+        x_plus = copy(x)
+        x_minus = copy(x)
+        x_plus[i] += h
+        x_minus[i] -= h
+        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2 * h)
+    end
+    return jac
+end
+
+
+"""
     eom_hessian_fd(eom::Function, x, u, params, t)
 
 Evaluate Hessian of equations of motion using ForwardDiff.

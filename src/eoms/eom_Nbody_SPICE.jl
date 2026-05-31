@@ -92,6 +92,14 @@ end
 Right-hand side of N-body equations of motion with STMcompatible with `DifferentialEquations.jl`
 """
 function eom_stm_Nbody_SPICE!(dx_stm, x_stm, params, t)
+    if params.include_drag
+        dx_stm[1:6] = eom_Nbody_SPICE(x_stm[1:6], params, t)
+        A = eom_jacobian_central(eom_Nbody_SPICE, x_stm[1:6], 0.0, params, t)
+        A[1:3,4:6] .= I(3)   # force identity for linear map
+        dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
+        return nothing
+    end
+
     dx_stm[1:3] = x_stm[4:6]
     dx_stm[4:6] = -params.mus[1] / norm(x_stm[1:3])^3 * x_stm[1:3]
     Rs = similar(params.Rs)
@@ -138,6 +146,10 @@ end
 Evaluate Jacobian of N-body problem
 """
 function dfdx_Nbody_SPICE(x, u, params, t)
+    if params.include_drag
+        return eom_jacobian_central(eom_Nbody_SPICE, x[1:6], u, params, t)
+    end
+
     Rs = similar(params.Rs)
     R_sun = zeros(eltype(params.R_sun), length(params.R_sun))
 

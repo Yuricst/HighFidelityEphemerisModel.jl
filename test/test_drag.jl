@@ -217,6 +217,83 @@ function test_eom_jacobian_fd_drag(;verbose=false)
 end
 
 
+function _assert_drag_nbody_stm_matches_eom(eom, eom_stm!, dfdx, x0, parameters)
+    x0_stm = [x0; reshape(I(6), 36)]
+    dx_stm = similar(x0_stm)
+    eom_stm!(dx_stm, x0_stm, parameters, 0.0)
+    dx_state = eom(x0, parameters, 0.0)
+    @test dx_stm[1:6] ≈ dx_state atol=1e-12
+
+    A = dfdx(x0, 0.0, parameters, 0.0)
+    @test dx_stm[7:42] ≈ reshape(A, 36) atol=1e-12
+    @test maximum(abs.(A[4:6, 4:6])) > 0.0
+
+    h = 1e-6
+    jac_numerical = zeros(6, 6)
+    for i = 1:6
+        x_plus = copy(x0)
+        x_minus = copy(x0)
+        x_plus[i] += h
+        x_minus[i] -= h
+        jac_numerical[:, i] = (
+            eom(x_plus, parameters, 0.0) -
+            eom(x_minus, parameters, 0.0)
+        ) / (2 * h)
+    end
+    @test maximum(abs.(A - jac_numerical)) < 1e-8
+end
+
+
+function test_Nbody_SPICE_drag_stm_symbolic_path()
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    f_density = (et, r_km::AbstractVector{Float64}) -> 1e-12
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+
+    x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    _assert_drag_nbody_stm_matches_eom(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE,
+        HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!,
+        HighFidelityEphemerisModel.dfdx_Nbody_SPICE,
+        x0,
+        parameters,
+    )
+end
+
+
+function test_Nbody_Interp_drag_stm_symbolic_path()
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    f_density = (et, r_km::AbstractVector{Float64}) -> 1e-12
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        interpolate_ephem_span = [et0, et0 + 2 * 86400.0],
+        interpolation_time_step = 3600.0,
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+
+    x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    _assert_drag_nbody_stm_matches_eom(
+        HighFidelityEphemerisModel.eom_Nbody_Interp,
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp!,
+        HighFidelityEphemerisModel.dfdx_Nbody_Interp,
+        x0,
+        parameters,
+    )
+end
+
+
 function test_drag_stm(; verbose=false)
     et0 = str2et("2030-01-01T00:00:00")
     parameters = _drag_stm_parameters(et0)
@@ -270,4 +347,6 @@ test_eom_Nbody_SPICE_drag()
 test_harris_priester_model()
 test_harris_priester_forwarddiff()
 test_eom_jacobian_fd_drag()
+test_Nbody_SPICE_drag_stm_symbolic_path()
+test_Nbody_Interp_drag_stm_symbolic_path()
 test_drag_stm()
