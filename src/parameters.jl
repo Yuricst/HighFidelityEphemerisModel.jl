@@ -15,11 +15,17 @@ mutable struct HighFidelityEphemerisModelParameters
     interpolated_ephems::Union{Nothing,Vector{InterpolatedEphemeris}}
     spherical_harmonics_data::Union{Nothing,Dict}
     frame_PCPF::Union{Nothing,String}
+    factorial_alias::Function
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
 
     include_srp::Bool
     k_srp_cannonball::Float64
     idx_sun::Int
+
+    include_drag::Bool
+    k_drag::Float64
+    omega_atm::Vector{Float64}
+    f_density::Union{Nothing,Function}
 
     f_jacobian::Union{Nothing,Function}
     Rs::Vector{Float64}
@@ -42,6 +48,11 @@ function Base.show(io::IO, params::HighFidelityEphemerisModelParameters)
     if params.include_srp
         @printf("    k_srp_cannonball : %1.8f\n", params.k_srp_cannonball)
         @printf("    idx_sun          : %d\n", params.idx_sun)
+    end
+    @printf("    include_drag     : %s\n", params.include_drag)
+    if params.include_drag
+        @printf("    k_drag           : %1.8f\n", params.k_drag)
+        @printf("    omega_atm        : [%1.8f, %1.8f, %1.8f]\n", params.omega_atm...)
     end
 end
 
@@ -66,7 +77,13 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `srp_Cr::Float64`: SRP radiation pressure coefficient
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
 - `srp_P0::Float64`: SRP power in W
+- `include_drag::Bool`: whether to include atmospheric drag terms
+- `drag_Cd::Float64`: drag coefficient, dimensionless
+- `drag_Am::Float64`: drag area-to-mass ratio in m^2/kg
+- `f_density`: callback `(et, r_km) -> rho` returning atmospheric density in kg/m^3
+- `omega_atm::Vector{Float64}`: atmospheric rotation rate in rad/s, in the inertial frame
 - `nu::Int`: control dimension for vector to be constructed within parameters struct
+- `use_canonical_scales::Bool`: whether to use canonical scales for the problem
 """
 function HighFidelityEphemerisModelParameters(
     et0::Float64,
@@ -85,11 +102,23 @@ function HighFidelityEphemerisModelParameters(
     srp_Cr::Float64 = 1.15,
     srp_Am::Float64 = 0.002,
     srp_P0::Float64 = 4.56e-6,
+    include_drag::Bool = false,
+    drag_Cd::Float64 = 2.2,
+    drag_Am::Float64 = 0.01,
+    f_density::Union{Nothing,Function} = nothing,
+    omega_atm::Vector{Float64} = [0.0, 0.0, 7.2921159e-5],
     nu::Int = 4,
+    use_canonical_scales::Bool = true,
 )
-    VU = sqrt(GMs[1]/DU)
-    TU = DU/VU
-    mus = GMs / GMs[1]         # scaled GM's
+    # check to see if we use canonical scales
+    if use_canonical_scales
+        VU = sqrt(GMs[1]/DU)
+        TU = DU/VU
+        mus = GMs / GMs[1]          # scaled GM's
+    else
+        DU, TU, VU = 1.0, 1.0, 1.0  # overwrite canonical scales to 1
+        mus = GMs                   # unscaled GM's
+    end
 
     # Jacobian function
     if get_jacobian_func
@@ -129,9 +158,14 @@ function HighFidelityEphemerisModelParameters(
         end
     end
 
+    # Spherical-harmonic acceleration evaluates Legendre terms up to degree nmax + 1,
+    # whose summation uses factorial(2 * (nmax + 1)). Int factorial is safe only
+    # through factorial(20), so switch before nmax reaches 10.
+    factorial_alias = nmax <= 9 ? factorial : factorial_safe
     if !isnothing(filepath_spherical_harmonics)
-        spherical_harmonics_data = load_spherical_harmonics(filepath_spherical_harmonics, nmax, true)
-        #@assert isnothing(frame_PCPF) == false, "frame_PCPF must be provided when spherical harmonics are used"
+        spherical_harmonics_data = load_spherical_harmonics(
+            filepath_spherical_harmonics, nmax, true, factorial_alias
+        )
     else
         spherical_harmonics_data = nothing
     end
@@ -147,16 +181,31 @@ function HighFidelityEphemerisModelParameters(
         idx_sun = 0
     end
 
+    # drag parameters
+    if include_drag
+        if isnothing(f_density)
+            @error "f_density must be provided when drag is included"
+        end
+        k_drag = get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
+    else
+        k_drag = 0.0
+    end
+
     return HighFidelityEphemerisModelParameters(
         et0, DU, TU, VU,
         GMs, mus, naif_ids, naif_frame, abcorr,
         interpolated_ephems,
         spherical_harmonics_data,
         frame_PCPF,
+        factorial_alias,
         interpolated_transformation,
         include_srp,
         k_srp_cannonball,
         idx_sun,
+        include_drag,
+        k_drag,
+        omega_atm,
+        f_density,
         f_jacobian, Rs, zeros(3),
         nothing,        # adtype, defaults to nothing
         nothing,        # jacobian_cache, defaults to nothing

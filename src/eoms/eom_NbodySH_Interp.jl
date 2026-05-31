@@ -26,6 +26,14 @@ function eom_NbodySH_Interp!(dx, x, params, t)
         end
     end
 
+    if params.include_drag
+        et = params.et0 + t * params.TU
+        r_km = x[1:3] * params.DU
+        rho = params.f_density(et, r_km)
+        v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
+        dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
+    end
+
     if !isnothing(params.spherical_harmonics_data)
         T_inr2pcpf = pxform(params.interpolated_transformation, params.et0 + t*params.TU)
         a_SH = spherical_harmonics_accel(
@@ -35,7 +43,8 @@ function eom_NbodySH_Interp!(dx, x, params, t)
             params.spherical_harmonics_data["Snm"],
             params.spherical_harmonics_data["GM"],
             params.spherical_harmonics_data["REFERENCE RADIUS"],
-            params.spherical_harmonics_data["nmax"]
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
         )
         dx[4:6] += a_SH / (params.VU/params.TU)
     end
@@ -68,6 +77,14 @@ function eom_NbodySH_Interp(x, params, t)
         end
     end
 
+    if params.include_drag
+        et = params.et0 + t * params.TU
+        r_km = x[1:3] * params.DU
+        rho = params.f_density(et, r_km)
+        v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
+        dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
+    end
+
     if !isnothing(params.spherical_harmonics_data)
         T_inr2pcpf = pxform(params.interpolated_transformation, params.et0 + t*params.TU)
         a_SH = spherical_harmonics_accel(
@@ -77,7 +94,8 @@ function eom_NbodySH_Interp(x, params, t)
             params.spherical_harmonics_data["Snm"],
             params.spherical_harmonics_data["GM"],
             params.spherical_harmonics_data["REFERENCE RADIUS"],
-            params.spherical_harmonics_data["nmax"]
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
         )
         dx[4:6] += a_SH / (params.VU/params.TU)
     end
@@ -105,6 +123,6 @@ function eom_stm_NbodySH_Interp_fd!(dx_stm, x_stm, params, t)
     dx_stm[1:6] = eom_NbodySH_Interp(x_stm[1:6], params, t)
     A = eom_jacobian_fd(eom_NbodySH_Interp, x_stm[1:6], 0.0, params, t)
     A[1:3,4:6] .= I(3)   # force identity for linear map
-    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)')', 36)
+    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
     return nothing
 end

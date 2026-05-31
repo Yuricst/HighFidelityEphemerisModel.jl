@@ -4,11 +4,16 @@
 
 
 <p align="center">
-  <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/runtest.yml/badge.svg" alt="test workflow"/>
-  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a>
+  <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml">
+    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml/badge.svg" alt="test workflow"/>
+  </a>
+  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">
+    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml/badge.svg" alt="docs workflow"/>
+  </a>
+  <!-- <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a> -->
 </p>
 
-`HighFidelityEphemerisModel.jl` provides equations of motion for high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem (i.e. its solvers, parallelism, etc.) and other utilities for astrodynamics.
+`HighFidelityEphemerisModel.jl` provides equations of motion for high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem.
 
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
@@ -18,7 +23,7 @@ What `HighFidelityEphemerisModel.jl` contains:
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) implemented (at least for now)
 
-We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `Symbolics`.
+We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `Symbolics`.
 
 
 
@@ -36,14 +41,14 @@ We strive for minimal dependencies (listed in `Project.toml`), consisting of: `D
 2. In your project directory, add:
 
 ```julia-repl
-pkg> dev ./path/to/HighFidelityEphemerisModel.jl
+] dev ./path/to/HighFidelityEphemerisModel.jl
 ```
 
 3. To run tests, `cd` to the root of this repository, then
 
 ```julia-repl
-(@v1.10) pkg> activate .
-(HighFidelityEphemerisModel) pkg> test
+] activate .
+test
 ```
 
 
@@ -104,3 +109,4 @@ x0_stm = [x0; reshape(I(6),36)]
 prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
+

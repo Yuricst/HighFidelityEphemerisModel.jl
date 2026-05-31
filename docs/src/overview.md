@@ -12,7 +12,7 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
     ```julia
     x_stm_tf = sol.u[end]                       # concatenated state & STM (flattened)
     x_tf     = x_stm_tf[1:6]                    # final state [x,y,z,vx,vy,vz]
-    STM_tf   = reshape(sol.u[end][7:42],6,6)'   # final 6-by-6 STM
+    STM_tf   = reshape(sol.u[end][7:42],6,6)    # final 6-by-6 STM
     ```
 
 ## Dynamics model
@@ -22,6 +22,7 @@ In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravita
 - third-body perturbations
 - spherical harmonics
 - solar radiation pressure
+- atmospheric drag
 
 ```math
 \dot{\boldsymbol{x}}(t) = 
@@ -48,6 +49,11 @@ In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravita
     \boldsymbol{0}_{3 \times 1}
     \\ \boldsymbol{a}_{\mathrm{SRP}}(t)
 \end{bmatrix}
++
+\begin{bmatrix}
+    \boldsymbol{0}_{3 \times 1}
+    \\ \boldsymbol{a}_{\mathrm{drag}}(t)
+\end{bmatrix}
 ```
 
 ### Third-body perturbation
@@ -64,7 +70,7 @@ The third-body perturbation due to body $i$, $\boldsymbol{a}_{\mathrm{3bd},i}$, 
 ```
 
 where $\boldsymbol{r}_i$ is the position vector of the perturbing body.
-In `HEFM.jl`, this term is implemented using Battin's $F(q)$ function:
+In `HighFidelityEphemerisModel.jl`, this term is implemented using Battin's $F(q)$ function:
 
 ```math
 \boldsymbol{a}_{\mathrm{3bd},i}(t) =
@@ -156,12 +162,29 @@ P_{\odot} \left(\frac{\mathrm{AU}}{\mathrm{DU}}\right)^2 C_r \frac{A/m}{10^3}  \
 is pre-computed and stored.
 
 
+### Atmospheric drag
+
+Quadratic drag in the inertial frame is modeled as
+
+```math
+\boldsymbol{a}_{\mathrm{drag}} = -\tfrac{1}{2}\,\rho\,C_d\,\frac{A}{m}\,|\mathbf{v}_{\mathrm{rel}}|\,\mathbf{v}_{\mathrm{rel}}
+```
+
+where $\rho$ is atmospheric density (kg/m³) from a user callback, $C_d$ is the drag coefficient, $A/m$ is the area-to-mass ratio, and $\mathbf{v}_{\mathrm{rel}} = \mathbf{v} - \mathbf{v}_{\mathrm{atm}}$ is the spacecraft velocity relative to a co-rotating atmosphere ($\mathbf{v}_{\mathrm{atm}} = T_U\,\boldsymbol{\omega}_{\mathrm{atm}} \times \mathbf{r}$ in canonical units).
+
+The pre-computed coefficient $k_{\mathrm{drag}}$ absorbs $\tfrac{1}{2} C_d (A/m)$ and SI-to-canonical conversion so that
+
+```math
+\boldsymbol{a}_{\mathrm{drag}} = -k_{\mathrm{drag}}\,\rho\,|\mathbf{v}_{\mathrm{rel}}|\,\mathbf{v}_{\mathrm{rel}}.
+```
+
+
 ## List of equations of motion in `HighFidelityEphemerisModel.jl`
 
 The table below summarizes the equations of motion. Note: 
 
-- `Nbody`: central gravity term + third-body perturbations ($\boldsymbol{a}_{\mathrm{3bd},i}$)
-- `NbodySH`: central gravity term + third-body perturbations + spherical harmonics perturbations up to `nmax` degree ($\boldsymbol{a}_{\mathrm{SH},n_{\max}}$)
+- `Nbody`: central gravity term + third-body perturbations ($\boldsymbol{a}_{\mathrm{3bd},i}$), optional SRP and drag
+- `NbodySH`: central gravity term + third-body perturbations + spherical harmonics perturbations up to `nmax` degree ($\boldsymbol{a}_{\mathrm{SH},n_{\max}}$), optional SRP and drag
 - The STM is integrated with the Jacobian, which is computed either analytically (using symbolic derivative) or via `ForwardDiff` (functions containing `_fd`)
 
 | eom                   | eom + STM (analytical)  | eom + STM (ForwardDiff)      | `EnsembleThreads` compatibility |

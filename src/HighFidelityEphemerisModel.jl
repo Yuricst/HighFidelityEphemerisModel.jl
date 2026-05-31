@@ -2,6 +2,7 @@ module HighFidelityEphemerisModel
 
 using Dierckx
 using ForwardDiff
+using Interpolations
 using LinearAlgebra
 using Printf
 using SPICE
@@ -12,6 +13,7 @@ include("utils.jl")
 include("perturbations/third_body.jl")
 include("perturbations/spherical_harmonics.jl")
 include("perturbations/solar_radiation_pressure.jl")
+include("perturbations/drag.jl")
 
 include("ephemeris_interpolation.jl")
 include("transformation_interpolation.jl")
@@ -42,6 +44,7 @@ export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
 
 export set_sparse_jacobian_cache!
 export get_trueanomaly_event
+export HarrisPriesterModel, harris_priester_f_density
 
 export scp_solution_to_spk
 export prepare_spk_output!

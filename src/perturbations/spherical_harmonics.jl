@@ -21,7 +21,7 @@ Compute Legendre function of degree n order m
 # Returns
 - `Pnm::Real`: Legendre function value
 """
-function legendre(n::Int, m::Int, t::Real)
+function legendre(n::Int, m::Int, t::Real, factorial_alias::Function = factorial_safe)
     @assert n >= m "Require n >= m!"
     
     # Get r
@@ -34,8 +34,8 @@ function legendre(n::Int, m::Int, t::Real)
     # Compute sum term
     sum_term = 0.0
     for k = 0:r
-        denom = factorial(k) * factorial(n - k) * factorial(n - m - 2*k)
-        sum_term += (-1)^k * factorial(2*n - 2*k) / denom * t^(n - m - 2*k)
+        denom = factorial_alias(k) * factorial_alias(n - k) * factorial_alias(n - m - 2*k)
+        sum_term += (-1)^k * factorial_alias(2*n - 2*k) / denom * t^(n - m - 2*k)
     end
     
     # Compute Pnm
@@ -61,8 +61,8 @@ c.f. Montenbruck & Gill pg.66 eqn (3.27)
 - `Vnm::Real`: Vnm component
 - `Wnm::Real`: Wnm component
 """
-function get_VWnm(phi::Real, lambda::Real, R::Real, r::Real, n::Int, m::Int)
-    Pnm = legendre(n,m,sin(phi))
+function get_VWnm(phi::Real, lambda::Real, R::Real, r::Real, n::Int, m::Int, factorial_alias::Function = factorial_safe)
+    Pnm = legendre(n,m,sin(phi), factorial_alias)
     Vnm = (R/r)^(n+1) * Pnm * cos(m*lambda)
     Wnm = (R/r)^(n+1) * Pnm * sin(m*lambda)
     return Vnm, Wnm
@@ -90,28 +90,30 @@ c.f. Montenbruck & Gill pg.68 eqn (3.33)
 function spherical_harmonics_nm_accel_PCPF(
     phi::Real, lambda::Real, r::Real, 
     Cnm_dict::Dict, Snm_dict::Dict,
-    GM::Real, R::Real, n::Int, m::Int)
+    GM::Real, R::Real, n::Int, m::Int,
+    factorial_alias::Function = factorial_safe
+)
     # Extract coefficients
     Cnm = Cnm_dict[n,m]
     Snm = Snm_dict[n,m]
     
-    V_n1_m, W_n1_m = get_VWnm(phi, lambda, R, r, n+1, m)
+    V_n1_m, W_n1_m = get_VWnm(phi, lambda, R, r, n+1, m, factorial_alias)
     
     if m == 0
-        V_n1_1, W_n1_1 = get_VWnm(phi, lambda, R, r, n+1, 1)
+        V_n1_1, W_n1_1 = get_VWnm(phi, lambda, R, r, n+1, 1, factorial_alias)
         Cn0 = Cnm_dict[n,0]
         d2x_nm = GM/R^2 * (-Cn0 * V_n1_1)
         d2y_nm = GM/R^2 * (-Cn0 * W_n1_1)
     else
-        V_n1_m1, W_n1_m1 = get_VWnm(phi, lambda, R, r, n+1, m+1)
-        V_n1_m_1, W_n1_m_1 = get_VWnm(phi, lambda, R, r, n+1, m-1)
+        V_n1_m1, W_n1_m1 = get_VWnm(phi, lambda, R, r, n+1, m+1, factorial_alias)
+        V_n1_m_1, W_n1_m_1 = get_VWnm(phi, lambda, R, r, n+1, m-1, factorial_alias)
         d2x_nm = GM/(2*R^2) * (
             (-Cnm * V_n1_m1 - Snm * W_n1_m1) + 
-            factorial(n-m+2)/factorial(n-m) * (Cnm * V_n1_m_1 + Snm * W_n1_m_1)
+            factorial_alias(n-m+2)/factorial_alias(n-m) * (Cnm * V_n1_m_1 + Snm * W_n1_m_1)
         )
         d2y_nm = GM/(2*R^2) * (
             (-Cnm * W_n1_m1 + Snm * V_n1_m1) + 
-            factorial(n-m+2)/factorial(n-m) * (-Cnm * W_n1_m_1 + Snm * V_n1_m_1)
+            factorial_alias(n-m+2)/factorial_alias(n-m) * (-Cnm * W_n1_m_1 + Snm * V_n1_m_1)
         )
     end
     
@@ -139,13 +141,16 @@ Get acceleration due to potential up to degree nmax in planet-centered planet-fi
 function spherical_harmonics_accel_PCPF(
     rvec_PCPF::Vector,
     Cnm_dict::Dict, Snm_dict::Dict,
-    GM::Real, R::Real, nmax::Int
+    GM::Real, R::Real, nmax::Int,
+    factorial_alias::Function = factorial_safe
 )
     lmb, phi, r = cart2sph(rvec_PCPF)
     accel_PCPF = zeros(3)
     for n = 2:nmax
         for m = 0:n
-            accel_PCPF += spherical_harmonics_nm_accel_PCPF(phi, lmb, r, Cnm_dict, Snm_dict, GM, R, n, m)
+            accel_PCPF += spherical_harmonics_nm_accel_PCPF(
+                phi, lmb, r, Cnm_dict, Snm_dict, GM, R, n, m, factorial_alias
+            )
         end
     end
     return accel_PCPF
@@ -159,14 +164,22 @@ function spherical_harmonics_accel(
     Snm_dict::Dict,
     GM::Real,
     R::Real,
-    nmax::Int
+    nmax::Int,
+    factorial_alias::Function = factorial_safe
 )
     rvec_PCPF = T_inr2pcpf * rvec_integrator
-    return transpose(T_inr2pcpf) * spherical_harmonics_accel_PCPF(rvec_PCPF, Cnm_dict, Snm_dict, GM, R, nmax)
+    return transpose(T_inr2pcpf) * spherical_harmonics_accel_PCPF(
+        rvec_PCPF, Cnm_dict, Snm_dict, GM, R, nmax, factorial_alias
+    )
 end
 
 
-function load_spherical_harmonics(filepath::String, nmax::Int, denormalize::Bool)
+function load_spherical_harmonics(
+    filepath::String,
+    nmax::Int,
+    denormalize::Bool,
+    factorial_alias::Function = factorial_safe,
+)
     spherical_harmonics_data = Dict()
     spherical_harmonics_data["nmax"] = nmax
     spherical_harmonics_data["Cnm"] = Dict{Tuple{Int,Int},Float64}()
@@ -205,8 +218,12 @@ function load_spherical_harmonics(filepath::String, nmax::Int, denormalize::Bool
                 else
                     k = 2
                 end
-                spherical_harmonics_data["Cnm"][n,m] = C / sqrt(factorial(n+m)/(k*(2*n+1)*factorial(n-m)));
-                spherical_harmonics_data["Snm"][n,m] = S / sqrt(factorial(n+m)/(k*(2*n+1)*factorial(n-m)));
+
+                # undo normalization, c.f. Montenbruck & Gill pg. 58 eqn (3.13)
+                spherical_harmonics_data["Cnm"][n,m] = C / sqrt(factorial_alias(n+m)/(k*(2*n+1)*factorial_alias(n-m)));
+                spherical_harmonics_data["Snm"][n,m] = S / sqrt(factorial_alias(n+m)/(k*(2*n+1)*factorial_alias(n-m)));
+            else
+                error("Normalization not supported")
             end
     
             if n == nmax + 1

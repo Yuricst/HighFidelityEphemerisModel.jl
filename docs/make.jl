@@ -2,14 +2,20 @@
 Make documentation with Documenter.jl
 """
 
+import Pkg
+
+Pkg.activate(@__DIR__)
+Pkg.instantiate()
+
+# const SRC = normpath(joinpath(@__DIR__, "..", "src"))
+# include(joinpath(SRC, "HighFidelityEphemerisModel.jl"))
+
+using HighFidelityEphemerisModel
 using Documenter
 
-include(joinpath(dirname(@__FILE__), "../src/HighFidelityEphemerisModel.jl"))
-
-
 makedocs(
-    clean = false,
-    build = dirname(@__FILE__),
+    clean = true,
+    build = joinpath(@__DIR__, "build"),
 	modules  = [HighFidelityEphemerisModel],
     format   = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
     sitename = "HighFidelityEphemerisModel.jl",
@@ -19,6 +25,7 @@ makedocs(
         "Overview" => "overview.md",
         "Tutorials" => Any[
             "Basics" => "tutorials/basics.md",
+            "Perturbations" => "tutorials/perturbations.md",
             "Jacobians & Hessians" => "tutorials/jacobians_hessians.md",
         ],
         "API" => "api.md",

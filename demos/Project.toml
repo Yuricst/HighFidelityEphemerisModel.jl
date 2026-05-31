@@ -1,33 +1,15 @@
-name = "HighFidelityEphemerisModel"
-uuid = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
-authors = ["@yuricst"]
-version = "0.2.1"
-
 [deps]
 Dierckx = "39dd38d3-220a-591b-8e3c-4c3a8c710a94"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SPICE = "5bab7191-041a-5c2e-a744-024b9c3a5062"
 SparseDiffTools = "47a9eef4-7e08-11e9-0b38-333d64bd3804"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
-
-[compat]
-Dierckx = "0.5"
-ForwardDiff = "1.0"
-Interpolations = "0.16"
-OrdinaryDiffEq = "6.98"
-SPICE = "0.2"
-SparseDiffTools = "2.24"
-Symbolics = "6.43"
-julia = "1.10"
-
-[extras]
-Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-
-[targets]
-test = ["Coverage", "Random", "Test"]

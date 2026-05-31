@@ -16,6 +16,7 @@ end
 
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
+    include("test_drag.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
     include("test_Nbody_ensemble.jl")
@@ -38,4 +39,10 @@ end
 
 @testset "SPK generation helpers " begin
     include("test_scp_solution_to_spk.jl")
+end
+
+if get(ENV, "JULIA_COVERAGE", "") == "true"
+    @testset "Module coverage        " begin
+        include("coverage.jl")
+    end
 end
