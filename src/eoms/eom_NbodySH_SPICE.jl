@@ -35,13 +35,13 @@ function eom_NbodySH_SPICE!(dx, x, params, t)
 
     if params.include_drag
         et = params.et0 + t * params.TU
-        r_km = x[1:3] * params.DU
+        r_km = SPICE.pxform(params.naif_frame, params.frame_PCPF, et) * x[1:3] * params.DU
         rho = params.f_density(et, r_km)
         v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
         dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
     end
-    
-    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t*params.TU)
+
+    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t * params.TU)
     a_SH = spherical_harmonics_accel(
         T_inr2pcpf,
         x[1:3] * params.DU,
@@ -90,13 +90,13 @@ function eom_NbodySH_SPICE(x, params, t)
 
     if params.include_drag
         et = params.et0 + t * params.TU
-        r_km = x[1:3] * params.DU
+        r_km = SPICE.pxform(params.naif_frame, params.frame_PCPF, et) * x[1:3] * params.DU
         rho = params.f_density(et, r_km)
         v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
         dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
     end
-    
-    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t*params.TU)
+
+    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t * params.TU)
     a_SH = spherical_harmonics_accel(
         T_inr2pcpf,
         x[1:3] * params.DU,
