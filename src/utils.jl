@@ -1,6 +1,34 @@
 """Utility functions"""
 
 
+"""
+    mod_custom(a, n)
+
+Custom modulo function
+Ref: https://stackoverflow.com/questions/1878907/how-can-i-find-the-difference-between-two-angles
+"""
+function mod_custom(a, n)
+    return a - floor(a / n) * n
+end
+
+
+"""
+    angle_difference(ϕ_fwd::Real, ϕ_bck::Real)
+
+Compute angle difference for periodic angles between 0 and 2π
+"""
+function angle_difference(ϕ_fwd::Real, ϕ_bck::Real)
+    # modulo based
+    dϕ = mod_custom((ϕ_bck - ϕ_fwd + π), 2π) - π
+    return dϕ
+end
+
+
+"""
+    vector_hessian_forwarddiff(f::Function, x)
+
+Compute Hessian of a vector-valued function using ForwardDiff.
+"""
 function vector_hessian_forwarddiff(f::Function, x)
     out = ForwardDiff.jacobian(x -> ForwardDiff.jacobian(f, x), x)
     return reshape(out, (length(x), length(x), length(x)))

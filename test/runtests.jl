@@ -37,6 +37,10 @@ end
     include("test_hessian_fd.jl")
 end
 
+@testset "SPK generation helpers " begin
+    include("test_ode_sol_to_spk.jl")
+end
+
 if get(ENV, "JULIA_COVERAGE", "") == "true"
     @testset "Module coverage        " begin
         include("coverage.jl")

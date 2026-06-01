@@ -12,7 +12,7 @@ What `HighFidelityEphemerisModel.jl` contains:
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) impemented (at least for now)
 
-We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `Symbolics`.
+We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `Symbolics`.
 
 
 ## Install
@@ -54,3 +54,4 @@ julia> include("make.jl")
 - [Basics](@ref "Basics" tutorials/basics.md)
 - [Perturbations](@ref "Perturbations" tutorials/perturbations.md)
 - [Jacobians & Hessians](@ref "Jacobians & Hessians" tutorials/jacobians_hessians.md)
+- [ODE Solutions to SPK Files](@ref "ODE Solutions to SPK Files" tutorials/ode_sol_to_spk.md)

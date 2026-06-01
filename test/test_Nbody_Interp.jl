@@ -163,13 +163,13 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     # compare solutions
     if verbose
         println("Analytical final STM:")
-        print_matrix(reshape(sol_symb.u[end][7:42],6,6)')
+        print_matrix(reshape(sol_symb.u[end][7:42],6,6))
         println()
         println("ForwardDiff final STM:")
-        print_matrix(reshape(sol_fd.u[end][7:42],6,6)')
+        print_matrix(reshape(sol_fd.u[end][7:42],6,6))
         println()
         println("Diff:")
-        print_matrix(reshape(sol_symb.u[end][7:42],6,6)' - reshape(sol_fd.u[end][7:42],6,6)')
+        print_matrix(reshape(sol_symb.u[end][7:42],6,6) - reshape(sol_fd.u[end][7:42],6,6))
         # @show sol.u[end]
         # @show sol_symb.u[end][1:6]
         # @show sol_fd.u[end][1:6]
@@ -178,7 +178,7 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     @test norm(sol_symb.u[end][7:42] - sol_fd.u[end][7:42]) < 1e-8
 
     # construct numerical STM
-    STM_analytical = reshape(sol_symb.u[end][7:42],6,6)'
+    STM_analytical = reshape(sol_symb.u[end][7:42],6,6)
     STM_numerical = zeros(6,6)
     h = 1e-7
     for i = 1:6
