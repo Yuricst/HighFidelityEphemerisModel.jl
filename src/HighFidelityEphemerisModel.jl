@@ -28,7 +28,13 @@ include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
 
 include("events.jl")
-include("ode_sol_to_spk.jl")
+include("spk/utils.jl")
+include("spk/states.jl")
+include("spk/mkspk.jl")
+include("spk/maneuvers.jl")
+include("spk/metadata.jl")
+include("spk/incremental.jl")
+include("spk/ode_sol_to_spk.jl")
 
 export eom_jacobian_fd, eom_hessian_fd
 
