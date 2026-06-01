@@ -28,6 +28,13 @@ include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
 
 include("events.jl")
+include("spk/utils.jl")
+include("spk/states.jl")
+include("spk/mkspk.jl")
+include("spk/maneuvers.jl")
+include("spk/metadata.jl")
+include("spk/incremental.jl")
+include("spk/ode_sol_to_spk.jl")
 
 export eom_jacobian_fd, eom_hessian_fd
 
@@ -44,5 +51,11 @@ export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
 export set_sparse_jacobian_cache!
 export get_trueanomaly_event
 export HarrisPriesterModel, harris_priester_f_density
+
+export ode_sol_to_spk
+export prepare_spk_output!
+export append_solution_segment_to_spk!
+export append_state_file_to_spk!
+export write_spk_metadata_json
 
 end # module HighFidelityEphemerisModel
