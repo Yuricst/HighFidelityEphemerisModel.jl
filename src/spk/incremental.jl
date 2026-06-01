@@ -1,6 +1,5 @@
-# =============================================================================
-# Incremental SPK writing helpers for Monte-Carlo / station-keeping recursion
-# =============================================================================
+"""Incremental SPK writing helpers"""
+
 
 """
     prepare_spk_output!(output_spk; overwrite=true)
@@ -11,6 +10,10 @@ absolute output path.
 
 This is useful for Monte-Carlo station-keeping runs where each seed writes its
 own kernel before the recursion loop starts.
+
+# Arguments
+- `output_spk`: output `.bsp` file path
+- `overwrite::Bool`: if true, remove an existing file before writing
 """
 function prepare_spk_output!(output_spk::AbstractString; overwrite::Bool = true)
     output_spk_abs = abspath(output_spk)
@@ -35,9 +38,14 @@ end
 """
     write_solution_segment_states_for_spk!(sol, et0, parameters; kwargs...)
 
-Write one MKSPK `STATES` file from one ODE/SCP solution segment. The solution
+Write one MKSPK `STATES` file from one ODE solution segment. The solution
 is assumed to use nondimensional time and nondimensional states, consistent
 with `ode_sol_to_spk`.
+
+# Arguments
+- `sol`: ODE solution segment
+- `et0`: reference epoch in seconds past J2000
+- `parameters`: object containing `TU`, `DU`, and `VU`
 """
 function write_solution_segment_states_for_spk!(
     sol,
@@ -68,6 +76,7 @@ function write_solution_segment_states_for_spk!(
         x_nd = sol(t_nd)
         length(x_nd) >= 6 || error("Expected a state with at least 6 components, got length $(length(x_nd)).")
 
+        # MKSPK expects dimensional states.
         r_km = x_nd[1:3] .* parameters.DU
         v_kmps = x_nd[4:6] .* parameters.VU
         push!(cols, vcat(Float64.(r_km), Float64.(v_kmps)))
@@ -144,6 +153,7 @@ function append_state_file_to_spk!(
         polynom_degree = polynom_degree,
     )
 
+    # Default behavior: create the BSP if absent, append if it already exists.
     append_flag = append === nothing ? isfile(output_spk_abs) : Bool(append)
 
     wrap_mkspk(

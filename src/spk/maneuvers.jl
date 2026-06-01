@@ -1,6 +1,5 @@
-# =============================================================================
-# Maneuver writer
-# =============================================================================
+"""Maneuver-file writers for SPK generation"""
+
 
 """
     collect_node_to_node_maneuvers_mps(sols, et0, parameters)
@@ -10,6 +9,11 @@ jump between `sols[k]` end and `sols[k+1]` start, converted to m/s.
 
 The returned vector is used for both the maneuver text file and metadata JSON so
 those two products remain consistent.
+
+# Arguments
+- `sols`: vector of coast-arc ODE solutions
+- `et0`: reference epoch in seconds past J2000
+- `parameters`: object containing `TU` and `VU`
 """
 function collect_node_to_node_maneuvers_mps(sols, et0, parameters)
     entries = Any[]
@@ -140,6 +144,12 @@ Collect optimizer-commanded impulse entries from an OCP control matrix, e.g.
 `solution.u`, and a matching nondimensional time vector. Rows 1:3 are treated
 as the commanded vector impulse. Row 4, when present, is treated as the scalar
 magnitude/slack variable used by the objective.
+
+# Arguments
+- `ocp_control_times`: nondimensional control epochs
+- `ocp_control`: control matrix with vector components in rows 1:3
+- `et0`: reference epoch in seconds past J2000
+- `parameters`: object containing `TU` and `VU`
 """
 function collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, parameters)
     nrow = size(ocp_control, 1)
@@ -159,6 +169,7 @@ function collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, 
         dvz_mps = Float64(ocp_control[3, k]) * vu_to_mps
         dv_norm_mps = sqrt(dvx_mps^2 + dvy_mps^2 + dvz_mps^2)
 
+        # Row 4 is the scalar magnitude used by some OCP formulations.
         dv_scalar_mps = nrow >= 4 ? Float64(ocp_control[4, k]) * vu_to_mps : nothing
 
         push!(entries, (

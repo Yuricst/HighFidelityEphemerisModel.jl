@@ -1,19 +1,15 @@
 """
     ode_sol_to_spk.jl
 
-Single-file SCP-solution to MKSPK/SPK pipeline.
+High-level ODE-solution to MKSPK/SPK pipeline.
 
-- segmented MKSPK STATES file writing
-- exact per-segment MKSPK setup file writing
-- sequential `mkspk` create/append calls
-- node-to-node maneuver text-file writing
-- automatic segment counting
+The public `ode_sol_to_spk` function writes a combined BSP from one or more
+coast-arc ODE solutions. Lower-level state-file, MKSPK, maneuver, metadata, and
+incremental helpers are split into the other files in `src/spk`.
 
-Typical use from a notebook or script:
+Typical use:
 
 ```julia
-include("../src/ode_sol_to_spk.jl")
-
 result = ode_sol_to_spk(
     sols,
     et0,
@@ -22,28 +18,28 @@ result = ode_sol_to_spk(
     spice_id = -123456,
     center_id = 399,
     ref_frame_name = "J2000",
-    mkspk_cmd = ".\\mkspk.exe",
+    mkspk_cmd = "mkspk",
     dt_sec = 1800.0,
-    segment_gap_sec = 1e-7,
-    keep_intermediates = false,
 )
 ```
 
 Assumptions:
-- `sols` is a vector of coast-arc solutions.
-- Each coast arc has a `.t` vector in nondimensional time.
-- Each coast arc can be called as `sol(t_nd)` and returns a 6-vector
+- `sols` is a vector of coast-arc ODE solutions.
+- Each solution has a `.t` vector in nondimensional time.
+- Each solution can be called as `sol(t_nd)` and returns at least a 6-vector
   `[x, y, z, vx, vy, vz]` in nondimensional units.
-- `parameters` has fields/properties `TU`, `DU`, and `VU`.
+- `parameters` has `TU`, `DU`, and `VU` fields.
 """
-# =============================================================================
-# High-level public wrapper
-# =============================================================================
 
 """
     ode_sol_to_spk(sols, et0, parameters; kwargs...) to NamedTuple
 
-Generate a combined SPK/BSP file directly from SCP coast-arc solutions.
+Generate a combined SPK/BSP file directly from ODE coast-arc solutions.
+
+# Arguments
+- `sols`: vector of coast-arc ODE solutions
+- `et0`: reference epoch in seconds past J2000
+- `parameters`: object containing at least `TU`, `DU`, and `VU`
 
 Required keyword:
 - `output_spk`: output `.bsp` path.
@@ -155,7 +151,7 @@ function ode_sol_to_spk(
         collect(coast_windows)
 
     if verbose
-        println("SCP-to-SPK pipeline")
+        println("SPK generation pipeline")
         @printf("  coast arcs / segments : %d / %d\n", length(sols), length(windows))
         @printf("  sampling              : dt = %.6g s, gap = %.6g s\n", Float64(dt_sec), Float64(segment_gap_sec))
         println("  temporary dir         : ", _display_path(workdir))

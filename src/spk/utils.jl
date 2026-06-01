@@ -1,11 +1,7 @@
-# SPK utility helpers.
+"""Utility functions for SPK generation"""
 
 using Printf: @printf
 
-
-# =============================================================================
-# Small internal helpers
-# =============================================================================
 
 function _get_et0_from_parameters(parameters)
     return _property_first(parameters, (:et0, :ET0, :epoch0, :epoch_et0, :et_start, :t0_et))
@@ -66,20 +62,17 @@ function _print_spk_pipeline_summary(; output_spk, maneuver_txt, ocp_maneuver_tx
 
     jump_total = _summary_get(maneuver_summary, "total_delta_v_mps")
     if jump_total !== nothing
-        @printf("  Δv from traj. jumps   : %.6e m/s
-", jump_total)
+        @printf("  Δv from traj. jumps   : %.6e m/s\n", jump_total)
     end
 
     ocp_scalar = _summary_get(ocp_control_summary, "total_control_scalar_mps")
     if ocp_scalar !== nothing
-        @printf("  Δv from OCP scalar    : %.6e m/s
-", ocp_scalar)
+        @printf("  Δv from OCP scalar    : %.6e m/s\n", ocp_scalar)
     end
 
     ocp_vec = _summary_get(ocp_control_summary, "total_control_vector_norm_mps")
     if ocp_vec !== nothing
-        @printf("  Δv from OCP vectors   : %.6e m/s
-", ocp_vec)
+        @printf("  Δv from OCP vectors   : %.6e m/s\n", ocp_vec)
     end
 
     return nothing
@@ -189,10 +182,6 @@ function _write_json_string(io, s::AbstractString)
 end
 
 
-# =============================================================================
-# Utility helpers
-# =============================================================================
-
 function list_segment_state_files(states_dir::AbstractString)
     files = filter(f -> occursin(r"^seg_\d{3}_states\.txt$", f), readdir(states_dir))
     sort!(files)
@@ -205,6 +194,11 @@ function list_segment_setup_files(setup_dir::AbstractString)
     return [joinpath(setup_dir, f) for f in files]
 end
 
+"""
+    read_segment_boundary_epochs(states_dir)
+
+Read unique start/end epochs from all `seg_###_states.txt` files in a directory.
+"""
 function read_segment_boundary_epochs(states_dir::AbstractString)
     boundaries = Float64[]
     for path in list_segment_state_files(states_dir)
@@ -250,9 +244,14 @@ end
 function _make_spk_pipeline_workdir(output_spk_abs::AbstractString, intermediate_parent_dir)
     parent = intermediate_parent_dir === nothing ? dirname(output_spk_abs) : abspath(String(intermediate_parent_dir))
     mkpath(parent)
-    return mktempdir(parent; prefix = "scp_to_spk_")
+    return mktempdir(parent; prefix = "ode_sol_to_spk_")
 end
 
+"""
+    _mkspk_path(path)
+
+Convert a path to the slash-separated format expected by MKSPK setup files.
+"""
 function _mkspk_path(path::AbstractString)
     # MKSPK setup files are easier to read and usually safer with forward slashes.
     return replace(String(path), "\\" => "/")

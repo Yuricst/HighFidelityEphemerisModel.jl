@@ -1,6 +1,5 @@
-# =============================================================================
-# Segmentation / state-file writing
-# =============================================================================
+"""State-file writers for SPK generation"""
+
 
 """
     default_coast_windows(sols)
@@ -15,6 +14,11 @@ default_coast_windows(sols) = [(k, k) for k in 1:length(sols)]
 
 Build a uniform epoch grid from `et_start` to `et_end`, always including the
 endpoint exactly once.
+
+# Arguments
+- `et_start::Float64`: segment start epoch in seconds past J2000
+- `et_end::Float64`: segment end epoch in seconds past J2000
+- `dt_sec::Float64`: nominal sampling interval in seconds
 """
 function build_segment_epochs(et_start::Float64, et_end::Float64; dt_sec::Float64 = 1800.0)
     @assert et_end > et_start
@@ -35,6 +39,16 @@ function build_segment_epochs(et_start::Float64, et_end::Float64; dt_sec::Float6
     return ts
 end
 
+"""
+    write_mkspk_states_file(filepath, ts_et, Y)
+
+Write one MKSPK `STATES` input file.
+
+# Arguments
+- `filepath`: output text file path
+- `ts_et`: epochs in seconds past J2000
+- `Y`: 6-by-N dimensional state matrix in km and km/s
+"""
 function write_mkspk_states_file(
     filepath::AbstractString,
     ts_et::Vector{Float64},
@@ -62,6 +76,12 @@ end
 
 Write one MKSPK `STATES` file per `coast_windows` entry and return all written
 file paths.
+
+# Arguments
+- `sols`: vector of coast-arc ODE solutions
+- `coast_windows`: vector of `(start_index, end_index)` coast-arc windows
+- `et0`: reference epoch in seconds past J2000
+- `parameters`: object containing `TU`, `DU`, and `VU`
 """
 function write_segmented_states_for_spk!(
     sols,
@@ -94,6 +114,7 @@ function write_segmented_states_for_spk!(
         et_end_true   = Float64(et0 + seg_sols[end].t[end] * parameters.TU)
 
         et_start = et_start_true
+        # Avoid overlapping SPK coverage at impulsive segment boundaries.
         et_end = seg_idx < nseg ? et_end_true - segment_gap_sec : et_end_true
 
         if et_end <= et_start + tol_et
@@ -121,6 +142,7 @@ function write_segmented_states_for_spk!(
             x_nd = seg_sols[sol_ptr](t_nd)
             length(x_nd) >= 6 || error("Expected a state with at least 6 components, got length $(length(x_nd)).")
 
+            # MKSPK expects dimensional states.
             r_km   = x_nd[1:3] .* parameters.DU
             v_kmps = x_nd[4:6] .* parameters.VU
 

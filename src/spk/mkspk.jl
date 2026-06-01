@@ -1,7 +1,11 @@
-# =============================================================================
-# MKSPK setup generation / execution
-# =============================================================================
+"""MKSPK setup generation and execution helpers"""
 
+
+"""
+    _epoch_range_from_states_file(states_file)
+
+Read the first and last epochs from an MKSPK `STATES` file.
+"""
 function _epoch_range_from_states_file(states_file::AbstractString)
     first_epoch = nothing
     last_epoch = nothing
@@ -37,6 +41,11 @@ end
 
 Write a full MKSPK setup file with exact `EARLIEST_EPOCH` and `LATEST_EPOCH`
 computed directly from the corresponding segment states file.
+
+# Arguments
+- `setup_path::AbstractString`: output setup file path
+- `segment_id::String`: SPK segment identifier
+- `states_file_for_epochs::AbstractString`: MKSPK `STATES` file used for coverage
 """
 function write_full_mkspk_setup_exact(
     setup_path::AbstractString;
@@ -170,7 +179,13 @@ end
 """
     wrap_mkspk(filepath_set, filepath_in, filepath_out; mkspk_cmd="mkspk", append=false, overwrite=false)
 
-Non-interactive version of the old `wrap_mkspk`. It never prompts the user.
+Non-interactive wrapper around the NAIF `mkspk` executable. It never prompts
+the user.
+
+# Arguments
+- `filepath_set`: MKSPK setup file path
+- `filepath_in`: MKSPK input states file path
+- `filepath_out`: output BSP file path
 """
 function wrap_mkspk(
     filepath_set,
@@ -218,6 +233,12 @@ function wrap_mkspk(
     return filepath_out
 end
 
+"""
+    run_mkspk_for_segments!(setup_files, state_files, output_spk; kwargs...)
+
+Run MKSPK sequentially for one setup/state-file pair per segment. The first
+segment creates `output_spk`, and later segments append to the same BSP.
+"""
 function run_mkspk_for_segments!(
     setup_files::Vector{String},
     state_files::Vector{String},

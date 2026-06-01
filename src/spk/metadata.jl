@@ -1,12 +1,17 @@
-# =============================================================================
-# Metadata JSON helpers
-# =============================================================================
+"""Metadata JSON helpers for generated SPK files"""
+
 
 """
     build_spk_metadata(; kwargs...) -> Dict
 
 Build metadata for the generated SPK, including force-model information,
 NAIF frame, coverage windows, time/scaling units, and maneuver-file metadata.
+
+# Arguments
+- `output_spk::AbstractString`: generated BSP file path
+- `epoch_ranges`: vector of segment coverage windows in seconds past J2000
+- `parameters`: optional model/scaling object used for metadata extraction
+- `force_model_metadata`: optional explicit force-model metadata dictionary
 """
 function build_spk_metadata(;
     output_spk::AbstractString,
