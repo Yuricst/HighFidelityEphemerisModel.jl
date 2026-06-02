@@ -116,7 +116,9 @@ Build an `f_density` callback using the Harris-Priester model that returns the d
 
 # Returns
 A callable `(et, r_km) -> rho` returning atmospheric density in kg/m³.
-The epoch argument is accepted for API compatibility but is not used by this model.
+`r_km` must be in the planet-centered planet-fixed frame (`frame_PCPF`) used by the
+EOM when `include_drag` is enabled; the epoch argument is accepted for API compatibility
+but is not used by this model.
 """
 function harris_priester_f_density(R_earth_km::Real=6378.0; use_min::Bool=true)
     R_earth_km = float(R_earth_km)

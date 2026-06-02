@@ -80,7 +80,9 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `include_drag::Bool`: whether to include atmospheric drag terms
 - `drag_Cd::Float64`: drag coefficient, dimensionless
 - `drag_Am::Float64`: drag area-to-mass ratio in m^2/kg
-- `f_density`: callback `(et, r_km) -> rho` returning atmospheric density in kg/m^3
+- `f_density`: callback `(et, r_km) -> rho` returning atmospheric density in kg/m^3;
+  `r_km` is in `frame_PCPF` (km), transformed from `naif_frame` inside the EOM
+- `frame_PCPF` is required when `include_drag` is true
 - `omega_atm::Vector{Float64}`: atmospheric rotation rate in rad/s, in the inertial frame
 - `nu::Int`: control dimension for vector to be constructed within parameters struct
 - `use_canonical_scales::Bool`: whether to use canonical scales for the problem
@@ -185,6 +187,9 @@ function HighFidelityEphemerisModelParameters(
     if include_drag
         if isnothing(f_density)
             @error "f_density must be provided when drag is included"
+        end
+        if isnothing(frame_PCPF)
+            @error "frame_PCPF must be provided when drag is included"
         end
         k_drag = get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
     else
