@@ -89,3 +89,14 @@ function factorial_safe(n::Int)
         return factorial(big(n))
     end
 end
+
+
+"""
+    et_to_utc_mjd(et)
+
+Convert ephemeris time (seconds past J2000) to UTC modified Julian date.
+"""
+function et_to_utc_mjd(et::Real)
+    jd = unitim(float(et), "ET", "JDTDB")
+    return jd - 2400000.5
+end
