@@ -17,6 +17,7 @@ end
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
     include("test_drag.jl")
+    include("test_drag_jacchiaroberts.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
     include("test_Nbody_ensemble.jl")

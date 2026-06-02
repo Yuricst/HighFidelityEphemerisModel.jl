@@ -107,6 +107,7 @@ function test_eom_Nbody_SPICE_drag()
     f_density = HighFidelityEphemerisModel.harris_priester_f_density()
     parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        frame_PCPF = "IAU_EARTH",
         include_drag = true,
         drag_Cd = 2.2,
         drag_Am = 0.01,
@@ -123,7 +124,7 @@ function test_eom_Nbody_SPICE_drag()
     @test norm(sol.u[end] - u_check) < 1e-10
 
     et = parameters.et0
-    r_km = u0[1:3] * parameters.DU
+    r_km = SPICE.pxform(parameters.naif_frame, parameters.frame_PCPF, et) * u0[1:3] * parameters.DU
     rho = f_density(et, r_km)
     v_atm = HighFidelityEphemerisModel.atmospheric_velocity(u0[1:3], parameters.TU, parameters.omega_atm)
     a = HighFidelityEphemerisModel.drag(u0[1:3], u0[4:6], v_atm, rho, parameters.k_drag)
@@ -144,6 +145,18 @@ function test_harris_priester_model()
     f_density = HighFidelityEphemerisModel.harris_priester_f_density(6378.0; use_min=true)
     r_km = [6378.0 + 400.0, 0.0, 0.0]
     @test f_density(0.0, r_km) ≈ rho_min atol=1e-15
+end
+
+
+function test_f_density_frame_invariance()
+    et0 = str2et("2020-01-01T00:00:00")
+    naif_frame = "J2000"
+    frame_PCPF = "IAU_EARTH"
+    f_density = HighFidelityEphemerisModel.harris_priester_f_density(6378.0; use_min=true)
+    r_inertial = [6378.0 + 400.0, 0.0, 0.0]
+    T = SPICE.pxform(naif_frame, frame_PCPF, et0)
+    r_pcpf = T * r_inertial
+    @test f_density(et0, r_pcpf) ≈ f_density(et0, r_inertial) atol=1e-15
 end
 
 
@@ -268,6 +281,7 @@ test_atmospheric_velocity()
 test_drag_opposes_relative_velocity()
 test_eom_Nbody_SPICE_drag()
 test_harris_priester_model()
+test_f_density_frame_invariance()
 test_harris_priester_forwarddiff()
 test_eom_jacobian_fd_drag()
 test_drag_stm()
