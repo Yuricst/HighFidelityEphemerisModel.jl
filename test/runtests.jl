@@ -1,5 +1,8 @@
 """Run tests"""
 
+using ForwardDiff
+using LinearAlgebra
+using OrdinaryDiffEq
 using SPICE
 using Test
 

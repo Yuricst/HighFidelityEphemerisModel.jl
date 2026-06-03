@@ -35,19 +35,19 @@ const _JR_CON_DEN = [
 ]
 const _JR_DAY58_EPOCH_MJD = 36204.0
 const _JR_DEFAULT_R_POLAR_KM = 6356.766
+const _JR_DEFAULT_RE_KM = 6378.0
+const _JR_DEFAULT_UTC_MJD = 58849.0
 
 
-mutable struct JacchiaRobertsWorkspace
-    t_infinity::Float64
-    tx::Float64
-    root1::Float64
-    root2::Float64
-    x_root::Float64
-    y_root::Float64
-    sum_L::Float64
+struct JacchiaRobertsState{T<:Real}
+    t_infinity::T
+    tx::T
+    root1::T
+    root2::T
+    x_root::T
+    y_root::T
+    sum_L::T
 end
-
-JacchiaRobertsWorkspace() = JacchiaRobertsWorkspace(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 """
@@ -146,8 +146,67 @@ function _deflate_polynomial!(c::Vector{Float64}, root::Float64, c_new::Vector{F
 end
 
 
-function exotherm!(
-    ws::JacchiaRobertsWorkspace,
+function _jr_compute_roots(tx::Real)
+    tx_f = float(tx)
+    c_star = Vector{Float64}(undef, 5)
+    c_star[1] = _JR_CON_C[1] + 1.500625e6 * tx_f / (tx_f - _JR_TZERO)
+    c_star[2:5] .= _JR_CON_C[2:5]
+
+    aux = zeros(2, 2)
+    aux[1, 1] = 125.0
+    aux[1, 2] = 0.0
+    _roots!(c_star, aux, 1)
+    root1 = aux[1, 1]
+    _deflate_polynomial!(c_star, root1, c_star)
+
+    aux[1, 1] = 200.0
+    aux[1, 2] = 0.0
+    _roots!(c_star, aux, 1)
+    root2 = aux[1, 1]
+    _deflate_polynomial!(c_star, root2, c_star)
+
+    aux[1, 1] = 10.0
+    aux[1, 2] = 125.0
+    _roots!(c_star, aux, 1)
+    x_root = aux[1, 1]
+    y_root = abs(aux[1, 2])
+    return root1, root2, x_root, y_root
+end
+
+
+"""
+    _geodetic_lon_lat_alt(r_km, Re, flat)
+
+ForwardDiff-compatible geodetic longitude, latitude, and altitude on an oblate spheroid.
+
+Uses Bowring's closed-form latitude (matches SPICE `recgeo` at Float64 to within regression tolerance).
+"""
+function _geodetic_lon_lat_alt(r_km::AbstractVector{<:Real}, Re::Real, flat::Real)
+    x, y, z = r_km[1], r_km[2], r_km[3]
+    lon = atan(y, x)
+    e2 = flat * (2 - flat)
+    Rp = Re * (1 - flat)
+    p = hypot(x, y)
+    if p < 1.0e-15
+        lat = copysign(_JR_PI / 2, z)
+        alt = abs(z) - Rp
+        return lon, lat, alt
+    end
+    theta = atan(Re * z, Rp * p)
+    sin_theta = sin(theta)
+    cos_theta = cos(theta)
+    lat = atan(
+        z + e2 * Rp * sin_theta^3,
+        p - e2 * Re * cos_theta^3,
+    )
+    sin_lat = sin(lat)
+    N = Re / sqrt(1 - e2 * sin_lat^2)
+    alt = p / cos(lat) - N
+    return lon, lat, alt
+end
+
+
+function exotherm(
     space_craft::AbstractVector{<:Real},
     sun::AbstractVector{<:Real},
     geo::JacchiaRobertsGeomagneticExposphericParams,
@@ -156,21 +215,19 @@ function exotherm!(
     geo_lat::Real,
     R_polar_km::Real,
 )
-    sun_denom = hypot(sun[1], sun[2])
-    cross_denom = abs(sun[1] * space_craft[2] - sun[2] * space_craft[1])
-    cos_denom = hypot(space_craft[1], space_craft[2])
-    if cross_denom < 1.0e-15 || cos_denom < 1.0e-15
-        error("Jacchia-Roberts exotherm: denominator too close to zero")
-    end
+    T = promote_type(
+        typeof(height), typeof(sun_dec), typeof(geo_lat), typeof(R_polar_km),
+        eltype(space_craft), eltype(sun),
+    )
 
-    cos_alpha = (sun[1] * space_craft[1] + sun[2] * space_craft[2]) / (sun_denom * cos_denom)
-    hour_angle = if cos_alpha >= 1.0 - 1.0e-14
-        0.0
-    elseif cos_alpha <= -1.0 + 1.0e-14
-        ((sun[1] * space_craft[2] - sun[2] * space_craft[1]) / cross_denom) * _JR_PI
+    cos_denom = hypot(space_craft[1], space_craft[2])
+    hour_angle = if cos_denom < 1.0e-15
+        zero(T)
     else
-        ((sun[1] * space_craft[2] - sun[2] * space_craft[1]) / cross_denom) *
-        acos(cos_alpha)
+        atan(
+            sun[1] * space_craft[2] - sun[2] * space_craft[1],
+            sun[1] * space_craft[1] + sun[2] * space_craft[2],
+        )
     end
 
     theta = 0.5 * abs(geo_lat + sun_dec)
@@ -185,84 +242,76 @@ function exotherm!(
     t1 = geo.xtemp * (1.0 + 0.3 * (th22 + cos(0.5 * tau)^3.0 * (cos(eta)^2.2 - th22)))
     expkp = exp(geo.tkp)
 
-    ws.t_infinity = if height < 200.0
+    t_infinity = if height < 200.0
         t1 + 14.0 * geo.tkp + 0.02 * expkp
     else
         t1 + 28.0 * geo.tkp + 0.03 * expkp
     end
 
-    ws.tx = 371.6678 + 0.0518806 * ws.t_infinity - 294.3505 * exp(-0.00216222 * ws.t_infinity)
+    tx = 371.6678 + 0.0518806 * t_infinity - 294.3505 * exp(-0.00216222 * t_infinity)
 
     if height < 125.0
         sum_c = _horner(_JR_CON_C, height)
-        exotemp = ws.tx + (ws.tx - _JR_TZERO) * sum_c / 1.500625e6
+        exotemp = tx + (tx - _JR_TZERO) * sum_c / 1.500625e6
     elseif height > 125.0
-        ws.sum_L = _horner(_JR_CON_L, ws.t_infinity)
-        exotemp = ws.t_infinity - (ws.t_infinity - ws.tx) * exp(
-            -(ws.tx - _JR_TZERO) / (ws.t_infinity - ws.tx) *
-            (height - 125.0) / 35.0 * ws.sum_L / (R_polar_km + height),
+        sum_L = _horner(_JR_CON_L, t_infinity)
+        exotemp = t_infinity - (t_infinity - tx) * exp(
+            -(tx - _JR_TZERO) / (t_infinity - tx) *
+            (height - 125.0) / 35.0 * sum_L / (R_polar_km + height),
         )
     else
-        exotemp = ws.tx
+        sum_L = zero(T)
+        exotemp = tx
     end
 
     if height <= 125.0
-        c_star = Vector{Float64}(undef, 5)
-        c_star[1] = _JR_CON_C[1] + 1.500625e6 * ws.tx / (ws.tx - _JR_TZERO)
-        c_star[2:5] .= _JR_CON_C[2:5]
-
-        aux = zeros(2, 2)
-        aux[1, 1] = 125.0
-        aux[1, 2] = 0.0
-        _roots!(c_star, aux, 1)
-        ws.root1 = aux[1, 1]
-        _deflate_polynomial!(c_star, ws.root1, c_star)
-
-        aux[1, 1] = 200.0
-        aux[1, 2] = 0.0
-        _roots!(c_star, aux, 1)
-        ws.root2 = aux[1, 1]
-        _deflate_polynomial!(c_star, ws.root2, c_star)
-
-        aux[1, 1] = 10.0
-        aux[1, 2] = 125.0
-        _roots!(c_star, aux, 1)
-        ws.x_root = aux[1, 1]
-        ws.y_root = abs(aux[1, 2])
+        root1, root2, x_root, y_root = _jr_compute_roots(tx)
+        root1 = convert(T, root1)
+        root2 = convert(T, root2)
+        x_root = convert(T, x_root)
+        y_root = convert(T, y_root)
+        sum_L = height > 125.0 ? _horner(_JR_CON_L, t_infinity) : zero(T)
+    else
+        sum_L = _horner(_JR_CON_L, t_infinity)
+        root1 = zero(T)
+        root2 = zero(T)
+        x_root = zero(T)
+        y_root = zero(T)
     end
 
-    return exotemp
+    state = JacchiaRobertsState(t_infinity, tx, root1, root2, x_root, y_root, sum_L)
+    return exotemp, state
 end
 
 
 function rho_100(
     height::Real,
     temperature::Real,
-    ws::JacchiaRobertsWorkspace,
+    state::JacchiaRobertsState,
     R_polar_km::Real,
 )
     m_poly = _horner(_JR_M_CON, height)
-    b = [_JR_S_CON[i] + _JR_S_BETA[i] * ws.tx / (ws.tx - _JR_TZERO) for i in 1:6]
+    b = [_JR_S_CON[i] + _JR_S_BETA[i] * state.tx / (state.tx - _JR_TZERO) for i in 1:6]
 
-    roots_2 = ws.x_root^2 + ws.y_root^2
-    x_star = -2.0 * ws.root1 * ws.root2 * R_polar_km * (
-        R_polar_km^2 + 2.0 * R_polar_km * ws.x_root + roots_2
+    roots_2 = state.x_root^2 + state.y_root^2
+    x_star = -2.0 * state.root1 * state.root2 * R_polar_km * (
+        R_polar_km^2 + 2.0 * R_polar_km * state.x_root + roots_2
     )
-    v = (R_polar_km + ws.root1) * (R_polar_km + ws.root2) * (
-        R_polar_km^2 + 2.0 * R_polar_km * ws.x_root + roots_2
+    v = (R_polar_km + state.root1) * (R_polar_km + state.root2) * (
+        R_polar_km^2 + 2.0 * R_polar_km * state.x_root + roots_2
     )
-    u1 = (ws.root1 - ws.root2) * (ws.root1 + R_polar_km)^2 *
-         (ws.root1^2 - 2.0 * ws.root1 * ws.x_root + roots_2)
-    u2 = (ws.root1 - ws.root2) * (ws.root2 + R_polar_km)^2 *
-         (ws.root2^2 - 2.0 * ws.root2 * ws.x_root + roots_2)
-    w1 = ws.root1 * ws.root2 * R_polar_km * (R_polar_km + ws.root1) *
-         (R_polar_km + roots_2 / ws.root1)
-    w2 = ws.root1 * ws.root2 * R_polar_km * (R_polar_km + ws.root2) *
-         (R_polar_km + roots_2 / ws.root2)
+    u1 = (state.root1 - state.root2) * (state.root1 + R_polar_km)^2 *
+         (state.root1^2 - 2.0 * state.root1 * state.x_root + roots_2)
+    u2 = (state.root1 - state.root2) * (state.root2 + R_polar_km)^2 *
+         (state.root2^2 - 2.0 * state.root2 * state.x_root + roots_2)
+    w1 = state.root1 * state.root2 * R_polar_km * (R_polar_km + state.root1) *
+         (R_polar_km + roots_2 / state.root1)
+    w2 = state.root1 * state.root2 * R_polar_km * (R_polar_km + state.root2) *
+         (R_polar_km + roots_2 / state.root2)
 
-    s_poly = _horner(b, ws.root1)
+    s_poly = _horner(b, state.root1)
     p2 = s_poly / u1
-    s_poly = _horner(b, ws.root2)
+    s_poly = _horner(b, state.root2)
     p3 = -s_poly / u2
     s_poly = b[6]
     for i in 5:-1:1
@@ -270,32 +319,32 @@ function rho_100(
     end
     p5 = s_poly / v
     p4 = (
-        b[1] - ws.root1 * ws.root2 * R_polar_km^2 * (
-            b[5] + b[6] * (2.0 * ws.x_root + ws.root1 + ws.root2 - R_polar_km)
-        ) + w1 * p2 + w2 * p3 - ws.root1 * ws.root2 * b[6] * R_polar_km * roots_2 +
-        ws.root1 * ws.root2 * (R_polar_km^2 - roots_2) * p5
+        b[1] - state.root1 * state.root2 * R_polar_km^2 * (
+            b[5] + b[6] * (2.0 * state.x_root + state.root1 + state.root2 - R_polar_km)
+        ) + w1 * p2 + w2 * p3 - state.root1 * state.root2 * b[6] * R_polar_km * roots_2 +
+        state.root1 * state.root2 * (R_polar_km^2 - roots_2) * p5
     ) / x_star
     p1 = b[6] - 2 * p4 - p3 - p2
-    p6 = b[5] + b[6] * (2.0 * ws.x_root + ws.root1 + ws.root2 - R_polar_km) - p5 -
-         2.0 * (ws.x_root + R_polar_km) * p4 - (ws.root2 + R_polar_km) * p3 -
-         (ws.root1 + R_polar_km) * p2
+    p6 = b[5] + b[6] * (2.0 * state.x_root + state.root1 + state.root2 - R_polar_km) - p5 -
+         2.0 * (state.x_root + R_polar_km) * p4 - (state.root2 + R_polar_km) * p3 -
+         (state.root1 + R_polar_km) * p2
 
     log_f1 = p1 * log((height + R_polar_km) / (90.0 + R_polar_km)) +
-             p2 * log((height - ws.root1) / (90.0 - ws.root1)) +
-             p3 * log((height - ws.root2) / (90.0 - ws.root2)) +
+             p2 * log((height - state.root1) / (90.0 - state.root1)) +
+             p3 * log((height - state.root2) / (90.0 - state.root2)) +
              p4 * log(
-        (height^2 - 2.0 * ws.x_root * height + roots_2) /
-        (8100.0 - 180.0 * ws.x_root + roots_2),
+        (height^2 - 2.0 * state.x_root * height + roots_2) /
+        (8100.0 - 180.0 * state.x_root + roots_2),
     )
 
     f2 = (height - 90.0) * (
         _JR_M_CON[7] + p5 / ((height + R_polar_km) * (90.0 + R_polar_km))
     ) + p6 * atan(
-        ws.y_root * (height - 90.0) /
-        (ws.y_root^2 + (height - ws.x_root) * (90.0 - ws.x_root)),
-    ) / ws.y_root
+        state.y_root * (height - 90.0) /
+        (state.y_root^2 + (height - state.x_root) * (90.0 - state.x_root)),
+    ) / state.y_root
 
-    factor_k = -_JR_G_ZERO / (_JR_GAS_CON * (ws.tx - _JR_TZERO))
+    factor_k = -_JR_G_ZERO / (_JR_GAS_CON * (state.tx - _JR_TZERO))
     return _JR_RHO_ZERO * _JR_TZERO * m_poly * exp(factor_k * (log_f1 + f2)) /
            (_JR_MZERO * temperature)
 end
@@ -304,53 +353,54 @@ end
 function rho_125(
     height::Real,
     temperature::Real,
-    ws::JacchiaRobertsWorkspace,
+    state::JacchiaRobertsState,
     R_polar_km::Real,
 )
-    rho_prime = _horner(_JR_ZETA_CON, ws.t_infinity)
-    t_100 = ws.tx + _JR_OMEGA * (ws.tx - _JR_TZERO)
+    rho_prime = _horner(_JR_ZETA_CON, state.t_infinity)
+    t_100 = state.tx + _JR_OMEGA * (state.tx - _JR_TZERO)
 
-    roots_2 = ws.x_root^2 + ws.y_root^2
-    x_star = -2.0 * ws.root1 * ws.root2 * R_polar_km * (
-        R_polar_km^2 + 2.0 * R_polar_km * ws.x_root + roots_2
+    roots_2 = state.x_root^2 + state.y_root^2
+    x_star = -2.0 * state.root1 * state.root2 * R_polar_km * (
+        R_polar_km^2 + 2.0 * R_polar_km * state.x_root + roots_2
     )
-    v = (R_polar_km + ws.root1) * (R_polar_km + ws.root2) * (
-        R_polar_km^2 + 2.0 * R_polar_km * ws.x_root + roots_2
+    v = (R_polar_km + state.root1) * (R_polar_km + state.root2) * (
+        R_polar_km^2 + 2.0 * R_polar_km * state.x_root + roots_2
     )
-    u1 = (ws.root1 - ws.root2) * (ws.root1 + R_polar_km)^2 *
-         (ws.root1^2 - 2.0 * ws.root1 * ws.x_root + roots_2)
-    u2 = (ws.root1 - ws.root2) * (ws.root2 + R_polar_km)^2 *
-         (ws.root2^2 - 2.0 * ws.root2 * ws.x_root + roots_2)
-    w1 = ws.root1 * ws.root2 * R_polar_km * (R_polar_km + ws.root1) *
-         (R_polar_km + roots_2 / ws.root1)
-    w2 = ws.root1 * ws.root2 * R_polar_km * (R_polar_km + ws.root2) *
-         (R_polar_km + roots_2 / ws.root2)
+    u1 = (state.root1 - state.root2) * (state.root1 + R_polar_km)^2 *
+         (state.root1^2 - 2.0 * state.root1 * state.x_root + roots_2)
+    u2 = (state.root1 - state.root2) * (state.root2 + R_polar_km)^2 *
+         (state.root2^2 - 2.0 * state.root2 * state.x_root + roots_2)
+    w1 = state.root1 * state.root2 * R_polar_km * (R_polar_km + state.root1) *
+         (R_polar_km + roots_2 / state.root1)
+    w2 = state.root1 * state.root2 * R_polar_km * (R_polar_km + state.root2) *
+         (R_polar_km + roots_2 / state.root2)
 
     q2 = 1.0 / u1
     q3 = -1.0 / u2
     q5 = 1.0 / v
-    q4 = (1.0 + w1 * q2 + w2 * q3 + ws.root1 * ws.root2 * (R_polar_km^2 - roots_2) * q5) / x_star
+    q4 = (1.0 + w1 * q2 + w2 * q3 + state.root1 * state.root2 * (R_polar_km^2 - roots_2) * q5) / x_star
     q1 = -2 * q4 - q3 - q2
-    q6 = -q5 - 2.0 * (ws.x_root + R_polar_km) * q4 - (ws.root2 + R_polar_km) * q3 -
-         (ws.root1 + R_polar_km) * q2
+    q6 = -q5 - 2.0 * (state.x_root + R_polar_km) * q4 - (state.root2 + R_polar_km) * q3 -
+         (state.root1 + R_polar_km) * q2
 
     log_f3 = q1 * log((height + R_polar_km) / (100.0 + R_polar_km)) +
-             q2 * log((height - ws.root1) / (100.0 - ws.root1)) +
-             q3 * log((height - ws.root2) / (100.0 - ws.root2)) +
+             q2 * log((height - state.root1) / (100.0 - state.root1)) +
+             q3 * log((height - state.root2) / (100.0 - state.root2)) +
              q4 * log(
-        (height^2 - 2.0 * ws.x_root * height + roots_2) /
-        (1.0e4 - 200.0 * ws.x_root + roots_2),
+        (height^2 - 2.0 * state.x_root * height + roots_2) /
+        (1.0e4 - 200.0 * state.x_root + roots_2),
     )
 
     f4 = (height - 100.0) * q5 / ((height + R_polar_km) * (100.0 + R_polar_km)) +
          q6 * atan(
-        ws.y_root * (height - 100.0) /
-        (ws.y_root^2 + (height - ws.x_root) * (100.0 - ws.x_root)),
-    ) / ws.y_root
+        state.y_root * (height - 100.0) /
+        (state.y_root^2 + (height - state.x_root) * (100.0 - state.x_root)),
+    ) / state.y_root
 
-    factor_k = -1.500625e6 * _JR_G_ZERO * R_polar_km^2 / (_JR_GAS_CON * _JR_CON_C[5] * (ws.tx - _JR_TZERO))
+    factor_k = -1.500625e6 * _JR_G_ZERO * R_polar_km^2 / (_JR_GAS_CON * _JR_CON_C[5] * (state.tx - _JR_TZERO))
 
-    rho_sum = 0.0
+    T = promote_type(typeof(height), typeof(temperature), typeof(state.tx))
+    rho_sum = zero(T)
     for i in 1:5
         rhoi = _JR_MOL_MASS[i] * _JR_NUM_DENS[i] *
                exp(_JR_MOL_MASS[i] * factor_k * (f4 + log_f3))
@@ -369,18 +419,19 @@ function rho_high(
     t_500::Real,
     sun_dec::Real,
     geo_lat::Real,
-    ws::JacchiaRobertsWorkspace,
+    state::JacchiaRobertsState,
     R_polar_km::Real,
 )
-    rho_out = 0.0
+    T = promote_type(typeof(height), typeof(temperature), typeof(t_500), typeof(state.tx))
+    rho_out = zero(T)
     polar125 = R_polar_km + 125.0
     for i in 1:6
         if i <= 5
-            log_di = _horner(_JR_CON_DEN[i], ws.t_infinity)
+            log_di = _horner(_JR_CON_DEN[i], state.t_infinity)
             di = 10.0^log_di / _JR_AVOGADRO
         end
-        gamma = 35.0 * _JR_MOL_MASS[i] * _JR_G_ZERO * R_polar_km^2 * (ws.t_infinity - ws.tx) /
-                (_JR_GAS_CON * ws.sum_L * ws.t_infinity * (ws.tx - _JR_TZERO) * polar125)
+        gamma = 35.0 * _JR_MOL_MASS[i] * _JR_G_ZERO * R_polar_km^2 * (state.t_infinity - state.tx) /
+                (_JR_GAS_CON * state.sum_L * state.t_infinity * (state.tx - _JR_TZERO) * polar125)
         exp1 = 1.0 + gamma
         f = 1.0
         if i == 3
@@ -397,11 +448,11 @@ function rho_high(
         if height > 500.0 && i == 6
             r = _JR_MOL_MASS[6] * 10.0^(73.13 - (39.4 - 5.5 * log10(t_500)) * log10(t_500)) *
                 (t_500 / temperature)^exp1 *
-                ((ws.t_infinity - temperature) / (ws.t_infinity - t_500))^gamma / _JR_AVOGADRO
+                ((state.t_infinity - temperature) / (state.t_infinity - t_500))^gamma / _JR_AVOGADRO
             rho_out += r
         elseif i <= 5
-            r = f * _JR_MOL_MASS[i] * di * (ws.tx / temperature)^exp1 *
-                ((ws.t_infinity - temperature) / (ws.t_infinity - ws.tx))^gamma
+            r = f * _JR_MOL_MASS[i] * di * (state.tx / temperature)^exp1 *
+                ((state.t_infinity - temperature) / (state.t_infinity - state.tx))^gamma
             rho_out += r
         end
     end
@@ -430,7 +481,7 @@ end
 
 
 """
-    jacchia_roberts_density(height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo, ws;
+    jacchia_roberts_density(height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo;
         R_polar_km=6356.766)
 
 Compute Jacchia-Roberts atmospheric density in g/cm³.
@@ -441,27 +492,26 @@ function jacchia_roberts_density(
     sun_unit::AbstractVector{<:Real},
     utc_mjd::Real,
     geo_lat_rad::Real,
-    geo::JacchiaRobertsGeomagneticExposphericParams,
-    ws::JacchiaRobertsWorkspace;
+    geo::JacchiaRobertsGeomagneticExposphericParams;
     R_polar_km::Real = _JR_DEFAULT_R_POLAR_KM,
 )
     sun_dec = atan(sun_unit[3], hypot(sun_unit[1], sun_unit[2]))
-    R = float(R_polar_km)
+    T = promote_type(typeof(height_km), typeof(geo_lat_rad), eltype(r_km), eltype(sun_unit))
 
     density = if height_km <= 90.0
-        _JR_RHO_ZERO
+        convert(T, _JR_RHO_ZERO)
     elseif height_km < 100.0
-        temp = exotherm!(ws, r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R)
-        rho_100(height_km, temp, ws, R)
+        temp, state = exotherm(r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R_polar_km)
+        rho_100(height_km, temp, state, R_polar_km)
     elseif height_km <= 125.0
-        temp = exotherm!(ws, r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R)
-        rho_125(height_km, temp, ws, R)
+        temp, state = exotherm(r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R_polar_km)
+        rho_125(height_km, temp, state, R_polar_km)
     elseif height_km <= 2500.0
-        t_500 = exotherm!(ws, r_km, sun_unit, geo, 500.0, sun_dec, geo_lat_rad, R)
-        temp = exotherm!(ws, r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R)
-        rho_high(height_km, temp, t_500, sun_dec, geo_lat_rad, ws, R)
+        t_500, _ = exotherm(r_km, sun_unit, geo, 500.0, sun_dec, geo_lat_rad, R_polar_km)
+        temp, state = exotherm(r_km, sun_unit, geo, height_km, sun_dec, geo_lat_rad, R_polar_km)
+        rho_high(height_km, temp, t_500, sun_dec, geo_lat_rad, state, R_polar_km)
     else
-        0.0
+        zero(T)
     end
 
     return density * rho_cor(height_km, utc_mjd, geo_lat_rad, geo)
@@ -469,7 +519,35 @@ end
 
 
 """
-    JacchiaRobertsModel(height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo, ws; kwargs...)
+    JacchiaRobertsModel(height_km; kwargs...)
+
+Atmospheric density from the Jacchia-Roberts model in kg/m³ at geodetic altitude `height_km`.
+
+Uses default equatorial geometry (`r = [R + h, 0, 0]`), solar indices F10.7/F10.7a = 150, Kp = 3,
+and a sun unit vector along the equatorial x-axis. Suitable for ForwardDiff verification and
+quick comparisons with tabulated models.
+"""
+function JacchiaRobertsModel(
+    height_km::Real;
+    R_equatorial_km::Real = _JR_DEFAULT_RE_KM,
+    sun_unit::AbstractVector{<:Real} = [1.0, 0.0, 0.0],
+    utc_mjd::Real = _JR_DEFAULT_UTC_MJD,
+    geo_lat_rad::Real = 0.0,
+    F107::Real = 150.0,
+    F107a::Real = 150.0,
+    Kp::Real = 3.0,
+    R_polar_km::Real = _JR_DEFAULT_R_POLAR_KM,
+)
+    geo = JacchiaRobertsGeomagneticExposphericParams(F107, F107a, Kp)
+    r_km = [R_equatorial_km + height_km, zero(height_km), zero(height_km)]
+    return JacchiaRobertsModel(
+        height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo; R_polar_km = R_polar_km,
+    )
+end
+
+
+"""
+    JacchiaRobertsModel(height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo; kwargs...)
 
 Atmospheric density from the Jacchia-Roberts model in kg/m³.
 """
@@ -479,12 +557,11 @@ function JacchiaRobertsModel(
     sun_unit::AbstractVector{<:Real},
     utc_mjd::Real,
     geo_lat_rad::Real,
-    geo::JacchiaRobertsGeomagneticExposphericParams,
-    ws::JacchiaRobertsWorkspace;
-    kwargs...,
+    geo::JacchiaRobertsGeomagneticExposphericParams;
+    R_polar_km::Real = _JR_DEFAULT_R_POLAR_KM,
 )
     return 1e3 * jacchia_roberts_density(
-        height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo, ws; kwargs...
+        height_km, r_km, sun_unit, utc_mjd, geo_lat_rad, geo; R_polar_km = R_polar_km,
     )
 end
 
@@ -505,6 +582,9 @@ Build an `f_density` callback using the Jacchia-Roberts model.
 
 `r_km` passed to the callback must be in `frame_PCPF` (km), as supplied by the EOM.
 `frame_PCPF` must match `params.frame_PCPF` used in propagation.
+
+Geodetic latitude and altitude are computed with a pure-Julia oblate-spheroid conversion
+(ForwardDiff-compatible). SPICE is used only for sun position and frame transforms at fixed `et`.
 """
 function jacchia_roberts_f_density(;
     frame_PCPF::String = "IAU_EARTH",
@@ -517,23 +597,23 @@ function jacchia_roberts_f_density(;
     R_polar_km::Real = _JR_DEFAULT_R_POLAR_KM,
 )
     geo = JacchiaRobertsGeomagneticExposphericParams(F107, F107a, Kp)
-    ws = JacchiaRobertsWorkspace()
     Re = bodvrd(earth_id, "RADII", 3)[1]
     flat = (Re - bodvrd(earth_id, "RADII", 3)[3]) / Re
     R_polar_km = float(R_polar_km)
 
     function f_density(et, r_km_pcpf)
-        lon, lat, alt = recgeo(r_km_pcpf, Re, flat)
-        if alt <= 100.0
+        _, lat, alt = _geodetic_lon_lat_alt(r_km_pcpf, Re, flat)
+        if float(alt) <= 100.0
             error("Jacchia-Roberts atmosphere model is not available for altitudes below 100 km.")
         end
-        r_sun, _ = spkpos("10", et, naif_frame, abcorr, earth_id)
-        T = SPICE.pxform(naif_frame, frame_PCPF, et)
+        et_f = float(et)
+        r_sun, _ = spkpos("10", et_f, naif_frame, abcorr, earth_id)
+        T = SPICE.pxform(naif_frame, frame_PCPF, et_f)
         sun = T * r_sun
         sun ./= norm(sun)
-        utc_mjd = et_to_utc_mjd(et)
+        utc_mjd = et_to_utc_mjd(et_f)
         rho_gcm3 = jacchia_roberts_density(
-            alt, r_km_pcpf, sun, utc_mjd, lat, geo, ws; R_polar_km = R_polar_km,
+            alt, r_km_pcpf, sun, utc_mjd, lat, geo; R_polar_km = R_polar_km,
         )
         return 1e3 * rho_gcm3
     end

@@ -1,15 +1,29 @@
 """Tests for Jacchia-Roberts atmospheric density model"""
 
-using LinearAlgebra
-using OrdinaryDiffEq
-using SPICE
-using Test
 
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "utils.jl"))
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
     furnsh_kernels()
 end
+
+
+function _drag_stm_parameters(et0)
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
+    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
+        nmax = 2,
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+end
+
 
 
 function _pcpf_position(et, alt_km, naif_frame="J2000", frame_PCPF="IAU_EARTH")
@@ -59,20 +73,9 @@ function test_jacchia_roberts_vs_harris_priester()
 end
 
 
-function test_jacchia_roberts_eom_smoke()
-    naif_ids = ["399", "10"]
-    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+function test_jacchia_roberts_eom()
     et0 = str2et("2020-01-01T00:00:00")
-    DU = 6378.0
-    f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, "J2000", "NONE";
-        frame_PCPF = "IAU_EARTH",
-        include_drag = true,
-        drag_Cd = 2.2,
-        drag_Am = 0.01,
-        f_density = f_density,
-    )
+    parameters = _drag_stm_parameters(et0)
     u0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     tspan = (0.0, 3600.0 / parameters.TU)
     prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
@@ -81,20 +84,28 @@ function test_jacchia_roberts_eom_smoke()
 end
 
 
+function test_jacchia_roberts_forwarddiff()
+    h = 319.0
+    d_fd = ForwardDiff.derivative(h -> HighFidelityEphemerisModel.JacchiaRobertsModel(h), h)
+    h_step = 1e-3
+    d_num = (
+        HighFidelityEphemerisModel.JacchiaRobertsModel(h + h_step) -
+        HighFidelityEphemerisModel.JacchiaRobertsModel(h - h_step)
+    ) / (2 * h_step)
+    @test d_fd ≈ d_num rtol=1e-6
+
+    f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density()
+    r_km = [6378.0 + h, 0.0, 0.0]
+    grad_fd = ForwardDiff.gradient(r -> f_density(0.0, r), r_km)
+    @test all(isfinite, grad_fd)
+    @test grad_fd[2] ≈ 0.0 atol=1e-14
+    @test grad_fd[3] ≈ 0.0 atol=1e-14
+end
+
+
 function test_jacchia_roberts_eom_stm(; verbose=false)
-    naif_ids = ["399", "10"]
-    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     et0 = str2et("2020-01-01T00:00:00")
-    DU = 6378.0
-    f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, "J2000", "NONE";
-        frame_PCPF = "IAU_EARTH",
-        include_drag = true,
-        drag_Cd = 2.2,
-        drag_Am = 0.01,
-        f_density = f_density,
-    )
+    parameters = _drag_stm_parameters(et0)
     x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
     x0_stm = [x0; reshape(I(6), 36)]
 
@@ -108,7 +119,7 @@ function test_jacchia_roberts_eom_stm(; verbose=false)
     STM_numerical_short = _numerical_stm(x0, tspan_short, parameters)
     @test maximum(abs.(STM_analytical_short - STM_numerical_short)) < 1e-5
 
-    # Longer integration with smooth cubic Harris-Priester density.
+    # Longer integration with Jacchia-Roberts density.
     tspan = (0.0, 3 * 3600 / parameters.TU)
 
     prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
@@ -138,9 +149,10 @@ function test_jacchia_roberts_eom_stm(; verbose=false)
 end
 
 
-# test_jacchia_roberts_f_density_api()
-# test_jacchia_roberts_altitude_guard()
-# test_jacchia_roberts_regression()
-# test_jacchia_roberts_vs_harris_priester()
-# test_jacchia_roberts_eom_smoke()
+test_jacchia_roberts_f_density_api()
+test_jacchia_roberts_altitude_guard()
+test_jacchia_roberts_regression()
+test_jacchia_roberts_vs_harris_priester()
+test_jacchia_roberts_eom()
+test_jacchia_roberts_forwarddiff()
 test_jacchia_roberts_eom_stm()

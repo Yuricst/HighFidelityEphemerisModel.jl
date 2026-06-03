@@ -1,10 +1,5 @@
 """Tests for atmospheric drag perturbation"""
 
-using ForwardDiff
-using LinearAlgebra
-using OrdinaryDiffEq
-using SPICE
-using Test
 
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "utils.jl"))
@@ -52,6 +47,7 @@ function _numerical_stm(x0, tspan, parameters; h=1e-7)
     return STM_numerical
 end
 
+
 function test_get_drag_coefficient()
     DU = 6378.0
     GM = 398600.4415
@@ -95,7 +91,7 @@ function test_drag_opposes_relative_velocity()
 end
 
 
-function test_eom_Nbody_SPICE_drag()
+function test_harris_priester_eom()
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     naif_frame = "J2000"
@@ -148,7 +144,7 @@ function test_harris_priester_model()
 end
 
 
-function test_f_density_frame_invariance()
+function test_harris_priester_frame_invariance()
     et0 = str2et("2020-01-01T00:00:00")
     naif_frame = "J2000"
     frame_PCPF = "IAU_EARTH"
@@ -179,7 +175,7 @@ function test_harris_priester_forwarddiff()
 end
 
 
-function test_eom_jacobian_fd_drag(;verbose=false)
+function test_harris_priester_jacobian_fd(;verbose=false)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     naif_frame = "J2000"
@@ -230,7 +226,7 @@ function test_eom_jacobian_fd_drag(;verbose=false)
 end
 
 
-function test_drag_stm(; verbose=false)
+function test_harris_priester_eom_stm(; verbose=false)
     et0 = str2et("2030-01-01T00:00:00")
     parameters = _drag_stm_parameters(et0)
     x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
@@ -279,9 +275,9 @@ end
 test_get_drag_coefficient()
 test_atmospheric_velocity()
 test_drag_opposes_relative_velocity()
-test_eom_Nbody_SPICE_drag()
+test_harris_priester_eom()
 test_harris_priester_model()
-test_f_density_frame_invariance()
+test_harris_priester_frame_invariance()
 test_harris_priester_forwarddiff()
-test_eom_jacobian_fd_drag()
-test_drag_stm()
+test_harris_priester_jacobian_fd()
+test_harris_priester_eom_stm()
