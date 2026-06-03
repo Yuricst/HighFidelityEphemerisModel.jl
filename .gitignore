@@ -26,3 +26,4 @@ Manifest*.toml
 
 # Mac OSX tmp file
 .DS_Store
+/temp

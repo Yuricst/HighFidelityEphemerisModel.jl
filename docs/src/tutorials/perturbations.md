@@ -129,7 +129,9 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 Drag uses a quadratic law with density supplied by a callback `f_density(et, r_km)` returning $\rho$ in kg/m³. The atmosphere is modeled as co-rotating with angular rate `omega_atm` (default: Earth sidereal rate about the $z$-axis).
 
-A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km) - R_earth_km`; it is not the canonical distance unit `DU` (those may differ if you choose a different `DU` for scaling). Drag is supported on all `eom_Nbody_*` and `eom_NbodySH_*` variants.
+When drag is enabled, the EOM transform the spacecraft position from `naif_frame` to `frame_PCPF` before calling `f_density`. Custom callbacks must therefore expect **`r_km` in `frame_PCPF` (km)**, not in the inertial frame. Set `frame_PCPF` (e.g. `"IAU_EARTH"` for Earth drag).
+
+A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km) - R_earth_km`; it is not the canonical distance unit `DU` (those may differ if you choose a different `DU` for scaling). The Jacchia–Roberts model is available via `jacchia_roberts_f_density` (constant F10.7 / F10.7a / Kp; SPICE geodetics). Drag is supported on all `eom_Nbody_*` and `eom_NbodySH_*` variants.
 
 ```julia
 naif_ids = ["399", "10"]   # Earth-centered; Sun for optional third-body / SRP
@@ -141,6 +143,7 @@ f_density = harris_priester_f_density(R_earth_km; use_min=true)
 
 parameters = HighFidelityEphemerisModelParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
+    frame_PCPF = "IAU_EARTH",
     include_drag = true,
     drag_Cd = 2.2,
     drag_Am = 0.01,
@@ -153,11 +156,11 @@ prob = ODEProblem(eom_Nbody_SPICE!, x0_earth, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
-`f_density` is expected to be a function with signature `f_density(et, r_km)`, where `et` is the epoch in ephemeris seconds and `r_km` is the position vector in the integrator's frame in km.
+`f_density` is expected to be a function with signature `f_density(et, r_km)`, where `et` is the epoch in ephemeris seconds and `r_km` is the position vector in **`frame_PCPF`**, km.
 
 !!! note
 
-    `include_drag = true` requires `f_density` to be provided. Coefficient `k_drag` is computed internally from `drag_Cd` and `drag_Am` in SI units.
+    `include_drag = true` requires both `f_density` and `frame_PCPF` to be provided. Coefficient `k_drag` is computed internally from `drag_Cd` and `drag_Am` in SI units.
 
 
 ## Combining perturbations
