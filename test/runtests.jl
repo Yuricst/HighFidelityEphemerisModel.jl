@@ -8,6 +8,7 @@ include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
 
 # furnish spice kernels
 furnsh_kernels()
+verbose = false
 
 @testset "Ephemeris interpolation" begin
     include("test_interpolate_ephem.jl")
@@ -16,7 +17,7 @@ end
 
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
-    include("test_drag.jl")
+    include("test_drag_harris_priester.jl")
     include("test_drag_jacchiaroberts.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")

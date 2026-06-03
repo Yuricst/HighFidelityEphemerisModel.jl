@@ -81,8 +81,66 @@ function test_jacchia_roberts_eom_smoke()
 end
 
 
+function test_jacchia_roberts_eom_stm(; verbose=false)
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    DU = 6378.0
+    f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, "J2000", "NONE";
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+    x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+
+    # Short integration: linearized STM should match finite-difference reference closely.
+    tspan_short = (0.0, 0.1 * 3600 / parameters.TU)
+    sol_fd_short = solve(
+        ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan_short, parameters),
+        Vern8(), reltol=1e-14, abstol=1e-14,
+    )
+    STM_analytical_short = reshape(sol_fd_short.u[end][7:42], 6, 6)
+    STM_numerical_short = _numerical_stm(x0, tspan_short, parameters)
+    @test maximum(abs.(STM_analytical_short - STM_numerical_short)) < 1e-5
+
+    # Longer integration with smooth cubic Harris-Priester density.
+    tspan = (0.0, 3 * 3600 / parameters.TU)
+
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
+    sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
+    @test sol.retcode == SciMLBase.ReturnCode.Success
+
+    prob_fd = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)
+    sol_fd = solve(prob_fd, Vern8(), reltol=1e-14, abstol=1e-14)
+    @test sol_fd.retcode == SciMLBase.ReturnCode.Success
+    @test norm(sol.u[end] - sol_fd.u[end][1:6]) < 1e-9
+
+    STM_analytical = reshape(sol_fd.u[end][7:42], 6, 6)
+    STM_numerical = _numerical_stm(x0, tspan, parameters; h=1e-6)
+    if verbose
+        println("Analytical STM:")
+        print_matrix(STM_analytical)
+        println()
+        println("Numerical STM:")
+        print_matrix(STM_numerical)
+        println()
+        println("Diff:")
+        print_matrix(STM_analytical - STM_numerical)
+        println("Abs relative diff:")
+        print_matrix(abs.(STM_analytical - STM_numerical) ./ abs.(STM_numerical))
+    end
+    @test maximum(abs.(STM_analytical - STM_numerical)) < 1e-5
+end
+
+
 # test_jacchia_roberts_f_density_api()
 # test_jacchia_roberts_altitude_guard()
 # test_jacchia_roberts_regression()
-test_jacchia_roberts_vs_harris_priester()
+# test_jacchia_roberts_vs_harris_priester()
 # test_jacchia_roberts_eom_smoke()
+test_jacchia_roberts_eom_stm()
