@@ -27,6 +27,7 @@ makedocs(
             "Basics" => "tutorials/basics.md",
             "Perturbations" => "tutorials/perturbations.md",
             "Jacobians & Hessians" => "tutorials/jacobians_hessians.md",
+            "Generating SPICE SPK file" => "tutorials/ode_sol_to_spk.md",
         ],
         "API" => "api.md",
 		# "API" => Any[
