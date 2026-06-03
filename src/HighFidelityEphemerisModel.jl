@@ -14,6 +14,7 @@ include("perturbations/third_body.jl")
 include("perturbations/spherical_harmonics.jl")
 include("perturbations/solar_radiation_pressure.jl")
 include("perturbations/drag.jl")
+include("perturbations/harrispriester.jl")
 include("perturbations/jacchiaroberts.jl")
 
 include("ephemeris_interpolation.jl")
