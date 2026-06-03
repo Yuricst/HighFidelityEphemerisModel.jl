@@ -3,9 +3,9 @@
 using LinearAlgebra
 using SPICE
 
-#if !@isdefined(HighFidelityEphemerisModel)
+if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
-#end
+end
 
 
 test_interpolate_ephem = function ()
