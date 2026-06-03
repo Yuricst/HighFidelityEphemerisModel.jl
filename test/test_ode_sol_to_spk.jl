@@ -167,6 +167,52 @@ end
         @test isfile(single_segment.state_file)
         @test single_segment.epoch_range == (1000.0, 1100.0)
         @test single_segment.point_count == 3
+
+        jumping_sols = [
+            MockCoastArc(
+                [0.0, 1.0],
+                [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+                zeros(6),
+            ),
+            MockCoastArc(
+                [1.0, 2.0],
+                [1.0, 2.0, 3.0, 0.2, 0.2, 0.3],
+                zeros(6),
+            ),
+        ]
+
+        @test_throws ErrorException HighFidelityEphemerisModel.write_segmented_states_for_spk!(
+            jumping_sols,
+            [(1, 2)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            outdir = joinpath(tmpdir, "jumping_states"),
+            verbose = false,
+            show_progress = false,
+        )
+
+        existing_spk = joinpath(tmpdir, "existing.bsp")
+        write(existing_spk, "previous kernel")
+
+        @test_throws Exception HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols,
+            et0,
+            parameters;
+            output_spk = existing_spk,
+            spice_id = -123456,
+            center_id = 399,
+            leapseconds_file = "missing.tls",
+            mkspk_cmd = joinpath(tmpdir, "missing_mkspk"),
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            write_maneuvers = false,
+            write_metadata = false,
+            verbose = false,
+            show_progress = false,
+        )
+        @test read(existing_spk, String) == "previous kernel"
     end
 end
 

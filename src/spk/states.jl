@@ -9,6 +9,33 @@ This avoids interpolating across impulsive velocity jumps.
 """
 default_coast_windows(sols) = [(k, k) for k in 1:length(sols)]
 
+function _validate_coast_window_continuity(seg_sols, window; continuity_tol::Float64 = 1e-8)
+    length(seg_sols) <= 1 && return nothing
+
+    for k in 1:(length(seg_sols) - 1)
+        left = seg_sols[k]
+        right = seg_sols[k + 1]
+
+        t_left = left.t[end]
+        t_right = right.t[1]
+        if abs(t_left - t_right) > continuity_tol
+            error("Coast window $(window) joins arcs with a time gap/overlap: $(t_left) vs $(t_right). Use separate windows at discontinuities.")
+        end
+
+        x_left = left(t_left)
+        x_right = right(t_right)
+        length(x_left) >= 6 || error("Expected a state with at least 6 components, got length $(length(x_left)).")
+        length(x_right) >= 6 || error("Expected a state with at least 6 components, got length $(length(x_right)).")
+
+        jump = maximum(abs.(Float64.(x_right[1:6]) .- Float64.(x_left[1:6])))
+        if jump > continuity_tol
+            error("Coast window $(window) crosses a discontinuous state jump of $(jump). Use separate windows around impulsive maneuvers.")
+        end
+    end
+
+    return nothing
+end
+
 """
     build_segment_epochs(et_start, et_end; dt_sec=1800.0)
 
@@ -90,6 +117,7 @@ function write_segmented_states_for_spk!(
     parameters;
     dt_sec::Float64 = 1800.0,
     segment_gap_sec::Float64 = 1e-7,
+    continuity_tol::Float64 = 1e-8,
     outdir::AbstractString = "states_segmented",
     verbose::Bool = true,
     show_progress::Bool = true,
@@ -109,6 +137,7 @@ function write_segmented_states_for_spk!(
         @assert 1 <= a <= b <= length(sols) "Bad coast window $(window) for $(length(sols)) coast arcs."
 
         seg_sols = sols[a:b]
+        _validate_coast_window_continuity(seg_sols, window; continuity_tol = continuity_tol)
 
         et_start_true = Float64(et0 + seg_sols[1].t[1]     * parameters.TU)
         et_end_true   = Float64(et0 + seg_sols[end].t[end] * parameters.TU)
@@ -193,6 +222,7 @@ function write_segmented_states_from_coast_windows_epsilon_trim!(
         parameters;
         dt_sec = dt_sec,
         segment_gap_sec = eps_sec,
+        continuity_tol = 1e-8,
         outdir = outdir,
         verbose = true,
     )

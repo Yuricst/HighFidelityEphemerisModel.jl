@@ -1,6 +1,18 @@
 """Incremental SPK writing helpers"""
 
 
+function _check_spk_output_target(output_spk::AbstractString; overwrite::Bool = true)
+    output_spk_abs = abspath(output_spk)
+    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $output_spk_abs")
+    mkpath(dirname(output_spk_abs))
+
+    if isfile(output_spk_abs) && !overwrite
+        error("Output SPK already exists and `overwrite=false`: $output_spk_abs")
+    end
+
+    return output_spk_abs
+end
+
 """
     prepare_spk_output!(output_spk; overwrite=true)
 
@@ -16,19 +28,13 @@ own kernel before the recursion loop starts.
 - `overwrite::Bool`: if true, remove an existing file before writing
 """
 function prepare_spk_output!(output_spk::AbstractString; overwrite::Bool = true)
-    output_spk_abs = abspath(output_spk)
-    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $output_spk_abs")
-    mkpath(dirname(output_spk_abs))
+    output_spk_abs = _check_spk_output_target(output_spk; overwrite = overwrite)
 
     if isfile(output_spk_abs)
-        if overwrite
-            try
-                rm(output_spk_abs; force = true)
-            catch err
-                error("Could not remove existing SPK: $output_spk_abs. If it is furnished/loaded in SPICE or open elsewhere, close/unload it first. Original error: $err")
-            end
-        else
-            error("Output SPK already exists and `overwrite=false`: $output_spk_abs")
+        try
+            rm(output_spk_abs; force = true)
+        catch err
+            error("Could not remove existing SPK: $output_spk_abs. If it is furnished/loaded in SPICE or open elsewhere, close/unload it first. Original error: $err")
         end
     end
 
