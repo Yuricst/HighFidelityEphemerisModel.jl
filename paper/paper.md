@@ -35,7 +35,21 @@ $$
 
 # State of the field
 
-A description of how this software compares to other commonly-used packages in the research area. If related tools exist, provide a clear “build vs. contribute” justification explaining your unique scholarly contribution and why existing alternatives are insufficient.
+<!-- A description of how this software compares to other commonly-used packages in the research area. If related tools exist, provide a clear “build vs. contribute” justification explaining your unique scholarly contribution and why existing alternatives are insufficient. -->
+
+Notable open-source packages that include HFEM dynamics include the following: 
+
+**Orekit** [@orekit]
+
+**GMAT** [@gmat]
+
+**Basilisk** [@Kenneally2020-zn]
+
+Nyx
+
+Brahe
+
+
 
 # Software design
 
@@ -45,7 +59,6 @@ An explanation of the trade-offs you weighed, the design/architecture you chose,
 
 Evidence of realized impact (publications, external use, integrations) or credible near-term significance (benchmarks, reproducible materials, community-readiness signals). The evidence should be compelling and specific, not aspirational.
 
-[@Pearson:2017]
 
 # AI usage disclosure
 
