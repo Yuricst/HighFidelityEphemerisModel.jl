@@ -119,9 +119,5 @@ Now, to extract the STM that maps from `tspan[1]` to `tspan[2]`,
 ```julia
 x_aug_tf = sol_interp.u[end]            # final state + flattened STM
 x_tf   = x_aug_tf[1:6]                  # final state
-STM_tf = reshape(x_aug_tf[7:42],6,6)   # final STM; don't forget the transpose!
+STM_tf = reshape(x_aug_tf[7:42],6,6)   # final STM
 ```
-
-!!! warning
-
-    Since the STM is flattened in row-major within the equations of motion, while Julia is column-major, make sure to take the transpose after reshaping the flattened STM entries to `(6,6)`!
