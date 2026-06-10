@@ -57,6 +57,39 @@ end
 
 
 """
+    eom_jacobian_central(eom::Function, x, u, params, t; relstep=sqrt(eps(Float64)))
+
+Evaluate Jacobian of equations of motion using a central finite difference.
+The second argument `u` is a place-holder for control input.
+
+This is useful for perturbations whose callbacks are not guaranteed to accept
+ForwardDiff dual numbers.
+"""
+function eom_jacobian_central(
+    eom::Function,
+    x,
+    u,
+    params,
+    t;
+    relstep::Float64 = sqrt(eps(Float64)),
+)
+    fx = eom(x, params, t)
+    jac = zeros(eltype(fx), length(fx), length(x))
+
+    for i in eachindex(x)
+        h = relstep * max(abs(float(x[i])), 1.0)
+        x_plus = copy(x)
+        x_minus = copy(x)
+        x_plus[i] += h
+        x_minus[i] -= h
+        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2 * h)
+    end
+
+    return jac
+end
+
+
+"""
     eom_hessian_fd(eom::Function, x, u, params, t)
 
 Evaluate Hessian of equations of motion using ForwardDiff.

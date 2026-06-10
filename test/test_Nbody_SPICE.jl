@@ -150,5 +150,44 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
 end
 
 
+test_eom_stm_Nbody_SPICE_with_drag = function()
+    naif_ids = ["399"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    naif_frame = "J2000"
+    abcorr = "NONE"
+    DU = 6378.0
+
+    et0 = str2et("2020-01-01T00:00:00")
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = (et, r_km) -> 1e-10,
+    )
+
+    x0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+    t = 0.25
+
+    dx = HighFidelityEphemerisModel.eom_Nbody_SPICE(x0, parameters, t)
+    dx_stm = similar(x0_stm)
+    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!(dx_stm, x0_stm, parameters, t)
+    @test dx_stm[1:6] ≈ dx atol=1e-14
+
+    dx_stm_fd = similar(x0_stm)
+    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!(dx_stm_fd, x0_stm, parameters, t)
+    @test maximum(abs.(dx_stm[7:42] - dx_stm_fd[7:42])) < 1e-6
+
+    jac = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, 0.0, parameters, t)
+    jac_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters, t
+    )
+    @test maximum(abs.(jac - jac_fd)) < 1e-6
+end
+
+
 test_eom_Nbody_SPICE()
 test_eom_stm_Nbody_SPICE(verbose = false)
+test_eom_stm_Nbody_SPICE_with_drag()
