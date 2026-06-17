@@ -226,6 +226,73 @@ function test_harris_priester_jacobian_fd(;verbose=false)
 end
 
 
+function test_drag_symbolic_nbody_stm_paths()
+    et0 = str2et("2020-01-01T00:00:00")
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    f_density = (et, r_km) -> 1e-7
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+
+    x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+
+    dx_state = HighFidelityEphemerisModel.eom_Nbody_SPICE(x0, parameters, 0.0)
+    dx_stm = similar(x0_stm)
+    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!(dx_stm, x0_stm, parameters, 0.0)
+    @test dx_stm[1:6] ≈ dx_state atol=1e-12
+
+    jac_drag = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, 0.0, parameters, 0.0)
+    jac_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters, 0.0
+    )
+    @test maximum(abs.(jac_drag - jac_fd)) < 5e-7
+end
+
+
+function test_drag_interp_uses_interpolated_transformation()
+    et0 = str2et("2020-01-01T00:00:00")
+    naif_ids = ["399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    f_density = (et, r_km) -> 1e-10
+    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        interpolate_ephem_span = [et0, et0 + 3600.0],
+        interpolation_time_step = 600.0,
+        frame_PCPF = "IAU_EARTH",
+        include_drag = true,
+        drag_Cd = 2.2,
+        drag_Am = 0.01,
+        f_density = f_density,
+    )
+
+    x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
+    x0_stm = [x0; reshape(I(6), 36)]
+    t = 1200.0 / parameters.TU
+
+    SPICE.kclear()
+    try
+        dx_state = HighFidelityEphemerisModel.eom_Nbody_Interp(x0, parameters, t)
+        @test all(isfinite, dx_state)
+
+        dx_stm = similar(x0_stm)
+        HighFidelityEphemerisModel.eom_stm_Nbody_Interp!(dx_stm, x0_stm, parameters, t)
+        @test dx_stm[1:6] ≈ dx_state atol=1e-12
+
+        jac_drag = HighFidelityEphemerisModel.dfdx_Nbody_Interp(x0, 0.0, parameters, t)
+        @test all(isfinite, jac_drag)
+    finally
+        furnsh_kernels()
+    end
+end
+
+
 function test_harris_priester_eom_stm(; verbose=false)
     et0 = str2et("2030-01-01T00:00:00")
     parameters = _drag_stm_parameters(et0)
@@ -280,4 +347,6 @@ test_harris_priester_model()
 test_harris_priester_frame_invariance()
 test_harris_priester_forwarddiff()
 test_harris_priester_jacobian_fd()
+test_drag_symbolic_nbody_stm_paths()
+test_drag_interp_uses_interpolated_transformation()
 test_harris_priester_eom_stm()

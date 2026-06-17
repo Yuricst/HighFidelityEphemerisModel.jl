@@ -50,3 +50,28 @@ function drag(r, v, v_atm, rho, k_drag)
     v_rel_norm = norm(v_rel)
     return -k_drag * rho * v_rel_norm * v_rel
 end
+
+
+function _drag_accel_with_transform(x, params, t, T_inr2pcpf)
+    et = params.et0 + t * params.TU
+    r_km = T_inr2pcpf * x[1:3] * params.DU
+    rho = params.f_density(et, r_km)
+    v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
+    return drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
+end
+
+
+function drag_accel_spice(x, params, t)
+    et = params.et0 + t * params.TU
+    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, et)
+    return _drag_accel_with_transform(x, params, t, T_inr2pcpf)
+end
+
+
+function drag_accel_interp(x, params, t)
+    et = params.et0 + t * params.TU
+    T_inr2pcpf = params.interpolated_transformation === nothing ?
+        SPICE.pxform(params.naif_frame, params.frame_PCPF, et) :
+        pxform(params.interpolated_transformation, et)
+    return _drag_accel_with_transform(x, params, t, T_inr2pcpf)
+end
