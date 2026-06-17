@@ -111,9 +111,7 @@ Right-hand side of N-body equations of motion with STM compatible with `Differen
 """
 function eom_stm_NbodySH_SPICE_fd!(dx_stm, x_stm, params, t)
     dx_stm[1:6] = eom_NbodySH_SPICE(x_stm[1:6], params, t)
-    A = params.include_drag ?
-        eom_jacobian_central_fd(eom_NbodySH_SPICE, x_stm[1:6], 0.0, params, t) :
-        eom_jacobian_fd(eom_NbodySH_SPICE, x_stm[1:6], 0.0, params, t)
+    A = eom_jacobian_fd(eom_NbodySH_SPICE, x_stm[1:6], 0.0, params, t)
     A[1:3,4:6] .= I(3)   # force identity for linear map
     dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
     return nothing

@@ -101,9 +101,6 @@ end
 Evaluate Jacobian of N-body problem
 """
 function dfdx_NbodySH_Interp_fd(x, u, params, t)
-    if params.include_drag
-        return eom_jacobian_central_fd(HighFidelityEphemerisModel.eom_NbodySH_Interp, x, u, params, t)
-    end
     return ForwardDiff.jacobian(x -> HighFidelityEphemerisModel.eom_NbodySH_Interp(x, params, t), x)
 end
 
@@ -116,9 +113,7 @@ Right-hand side of N-body equations of motion with STM compatible with `Differen
 """
 function eom_stm_NbodySH_Interp_fd!(dx_stm, x_stm, params, t)
     dx_stm[1:6] = eom_NbodySH_Interp(x_stm[1:6], params, t)
-    A = params.include_drag ?
-        eom_jacobian_central_fd(eom_NbodySH_Interp, x_stm[1:6], 0.0, params, t) :
-        eom_jacobian_fd(eom_NbodySH_Interp, x_stm[1:6], 0.0, params, t)
+    A = eom_jacobian_fd(eom_NbodySH_Interp, x_stm[1:6], 0.0, params, t)
     A[1:3,4:6] .= I(3)   # force identity for linear map
     dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
     return nothing
