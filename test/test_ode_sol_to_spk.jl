@@ -170,6 +170,46 @@ end
     end
 end
 
+@testset "ODE solution to SPK preserves existing output on failure" begin
+    parameters = (
+        TU = 100.0,
+        DU = 10.0,
+        VU = 0.01,
+        et0 = 1000.0,
+        naif_ids = ["399"],
+        GMs = [1.0],
+        include_srp = false,
+    )
+
+    sols = [
+        MockCoastArc(
+            [0.0, 1.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ),
+    ]
+
+    mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "existing.bsp")
+        original = "existing kernel bytes"
+        write(output_spk, original)
+
+        @test_throws ErrorException HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols,
+            parameters.et0,
+            parameters;
+            output_spk = output_spk,
+            center_id = 399,
+            write_maneuvers = false,
+            write_metadata = false,
+            verbose = false,
+            show_progress = false,
+        )
+
+        @test read(output_spk, String) == original
+    end
+end
+
 @testset "SPK maneuver and metadata helpers" begin
     parameters = (
         TU = 100.0,

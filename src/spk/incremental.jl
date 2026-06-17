@@ -35,6 +35,47 @@ function prepare_spk_output!(output_spk::AbstractString; overwrite::Bool = true)
     return output_spk_abs
 end
 
+
+function _check_spk_output_path(output_spk::AbstractString; overwrite::Bool = true)
+    output_spk_abs = abspath(output_spk)
+    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $output_spk_abs")
+    mkpath(dirname(output_spk_abs))
+
+    if isfile(output_spk_abs) && !overwrite
+        error("Output SPK already exists and `overwrite=false`: $output_spk_abs")
+    end
+
+    return output_spk_abs
+end
+
+
+function _replace_spk_output!(temp_spk::AbstractString, output_spk::AbstractString; overwrite::Bool = true)
+    temp_spk_abs = abspath(temp_spk)
+    output_spk_abs = abspath(output_spk)
+
+    isfile(temp_spk_abs) || error("Temporary SPK was not created: $temp_spk_abs")
+    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $output_spk_abs")
+
+    if isfile(output_spk_abs)
+        overwrite || error("Output SPK already exists and `overwrite=false`: $output_spk_abs")
+
+        backup_spk = tempname(dirname(output_spk_abs))
+        mv(output_spk_abs, backup_spk; force = false)
+        try
+            mv(temp_spk_abs, output_spk_abs; force = false)
+        catch err
+            rm(output_spk_abs; force = true)
+            isfile(backup_spk) && mv(backup_spk, output_spk_abs; force = false)
+            error("Could not replace existing SPK: $output_spk_abs. Original file was restored. Original error: $err")
+        end
+        rm(backup_spk; force = true)
+    else
+        mv(temp_spk_abs, output_spk_abs; force = false)
+    end
+
+    return output_spk_abs
+end
+
 """
     write_solution_segment_states_for_spk!(sol, et0, parameters; kwargs...)
 

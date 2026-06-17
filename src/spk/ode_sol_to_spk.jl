@@ -140,11 +140,12 @@ function ode_sol_to_spk(
     dt_sec > 0 || error("`dt_sec` must be positive.")
     segment_gap_sec >= 0 || error("`segment_gap_sec` must be nonnegative.")
 
-    output_spk_abs = prepare_spk_output!(output_spk; overwrite = overwrite)
+    output_spk_abs = _check_spk_output_path(output_spk; overwrite = overwrite)
 
     workdir = _make_spk_pipeline_workdir(output_spk_abs, intermediate_parent_dir)
     states_dir = joinpath(workdir, "states_segmented")
     setup_dir  = joinpath(workdir, "setup_segmented")
+    temp_output_spk = joinpath(workdir, basename(output_spk_abs))
 
     windows = coast_windows === nothing ?
         default_coast_windows(sols) :
@@ -199,14 +200,14 @@ function ode_sol_to_spk(
     run_mkspk_for_segments!(
         setup_files,
         state_files,
-        output_spk_abs;
+        temp_output_spk;
         mkspk_cmd = mkspk_cmd,
         verbose = verbose,
         show_progress = show_progress,
         suppress_mkspk_output = suppress_mkspk_output,
     )
 
-    isfile(output_spk_abs) || error("mkspk finished, but output SPK was not found: $output_spk_abs")
+    isfile(temp_output_spk) || error("mkspk finished, but temporary output SPK was not found: $temp_output_spk")
 
     # Compute maneuver entries once so the text file and metadata JSON agree exactly.
     maneuver_entries = collect_node_to_node_maneuvers_mps(sols, et0, parameters)
@@ -315,6 +316,8 @@ function ode_sol_to_spk(
         write_spk_metadata_json(metadata_path, metadata)
         verbose && !print_summary && println("Wrote metadata JSON: ", _display_path(metadata_path))
     end
+
+    _replace_spk_output!(temp_output_spk, output_spk_abs; overwrite = overwrite)
 
     kept_workdir = keep_intermediates
     if !keep_intermediates

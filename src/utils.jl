@@ -57,6 +57,29 @@ end
 
 
 """
+    eom_jacobian_central_fd(eom::Function, x, u, params, t)
+
+Evaluate Jacobian of equations of motion using scale-aware central differences.
+This is useful for EOMs that call user callbacks which may not support dual numbers.
+"""
+function eom_jacobian_central_fd(eom::Function, x, u, params, t; relstep::Real = sqrt(eps(Float64)))
+    f0 = eom(x, params, t)
+    jac = zeros(promote_type(eltype(f0), Float64), length(f0), length(x))
+
+    for i in eachindex(x)
+        h = Float64(relstep) * max(abs(Float64(x[i])), 1.0)
+        x_plus = copy(x)
+        x_minus = copy(x)
+        x_plus[i] += h
+        x_minus[i] -= h
+        jac[:, i] = (eom(x_plus, params, t) - eom(x_minus, params, t)) / (2h)
+    end
+
+    return jac
+end
+
+
+"""
     eom_hessian_fd(eom::Function, x, u, params, t)
 
 Evaluate Hessian of equations of motion using ForwardDiff.
