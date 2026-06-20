@@ -1,46 +1,114 @@
-using Test
+"""Tests for SPK generation from ODE solution segments"""
+
+using LinearAlgebra
 using SPICE
+using Test
 
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
 end
 
+
+"""
+Mock coast-arc solution with the minimal `ODESolution`-like interface needed by
+`ode_sol_to_spk`.
+
+The real workflow passes an `OrdinaryDiffEq.ODESolution`; this small object keeps
+the SPK tests fast and deterministic.
+"""
 struct MockCoastArc
     t::Vector{Float64}
     x0::Vector{Float64}
     xdot::Vector{Float64}
 end
 
+
 (arc::MockCoastArc)(t) = arc.x0 .+ arc.xdot .* t
 
-function _mkspk_available(cmd::AbstractString)
-    return isfile(cmd) || Sys.which(cmd) !== nothing
+
+function _mock_parameters(; et0 = 1000.0)
+    return (
+        TU = 100.0,   # seconds per nondimensional time unit
+        DU = 1000.0,  # km per nondimensional distance unit
+        VU = 10.0,    # km/s per nondimensional velocity unit
+        et0 = et0,
+        naif_ids = ["399"],
+        GMs = [1.0],
+        include_srp = false,
+    )
 end
 
-function _find_test_lsk()
-    for key in ("LSK_PATH", "LEAPSECONDS_FILE")
-        path = get(ENV, key, "")
-        if !isempty(path) && isfile(path)
-            return path
-        end
-    end
 
-    spice_dir = get(ENV, "SPICE", "")
-    if !isempty(spice_dir)
-        candidates = [
-            joinpath(spice_dir, "lsk", "naif0012.tls"),
-            joinpath(spice_dir, "kernels", "lsk", "naif0012.tls"),
-            joinpath(spice_dir, "naif0012.tls"),
-        ]
-        for path in candidates
-            isfile(path) && return path
-        end
-    end
+function _mock_sols()
+    r0 = [1.0, 2.0, 3.0]
+    v0 = [0.01, -0.02, 0.03]
+    x0 = vcat(r0, v0)
+    xdot = vcat(v0, zeros(3))
 
-    return nothing
+    return [
+        MockCoastArc([0.0, 8.0], x0, xdot),
+        MockCoastArc([8.0, 16.0], x0, xdot),
+    ]
 end
 
-@testset "SPK helper utilities" begin
+
+function _reference_state(sol, t_nd, parameters)
+    x_ref = sol(t_nd)[1:6]
+    return vcat(
+        x_ref[1:3] .* parameters.DU,
+        x_ref[4:6] .* parameters.VU,
+    )
+end
+
+
+function _solution_for_time(sols, t_nd)
+    for sol in sols
+        if sol.t[1] <= t_nd <= sol.t[end]
+            return sol
+        end
+    end
+    error("No mock solution covers t_nd = $t_nd.")
+end
+
+
+function _validate_spk_against_sols(
+    output_spk,
+    sols,
+    t_queries_nd,
+    parameters;
+    spice_id,
+    center_id,
+    frame = "J2000",
+)
+    @test isfile(output_spk)
+
+    SPICE.furnsh(output_spk)
+    try
+        for t_nd in t_queries_nd
+            et = parameters.et0 + t_nd * parameters.TU
+
+            # Query the generated BSP and compare against the source ODE arc.
+            state_spk, _ = SPICE.spkezr(
+                string(spice_id),
+                et,
+                frame,
+                "NONE",
+                string(center_id),
+            )
+
+            sol = _solution_for_time(sols, t_nd)
+            state_ref = _reference_state(sol, t_nd, parameters)
+
+            @test state_spk[1:3] ≈ state_ref[1:3] atol = 1e-7
+            @test state_spk[4:6] ≈ state_ref[4:6] atol = 1e-10
+        end
+    finally
+        SPICE.unload(output_spk)
+    end
+end
+
+
+function test_spk_helper_utilities()
     ts = HighFidelityEphemerisModel.build_segment_epochs(
         0.0,
         3600.0;
@@ -67,11 +135,12 @@ end
     @test !isdir(tempdir_removed)
 end
 
-@testset "SPK state and setup file writers" begin
+
+function test_spk_state_sampling()
     parameters = (
-        TU = 100.0,   # seconds per nondimensional time unit
-        DU = 10.0,    # km per nondimensional distance unit
-        VU = 0.01,    # km/s per nondimensional velocity unit
+        TU = 100.0,
+        DU = 10.0,
+        VU = 0.01,
     )
 
     sols = [
@@ -86,7 +155,6 @@ end
 
     mktempdir() do tmpdir
         states_dir = joinpath(tmpdir, "states")
-        setup_dir = joinpath(tmpdir, "setup")
 
         state_result = HighFidelityEphemerisModel.write_segmented_states_for_spk!(
             sols,
@@ -122,38 +190,23 @@ end
         @test last_row[2:4] ≈ [11.0, 22.0, 33.0]
         @test last_row[5:7] ≈ [0.044, 0.055, 0.066]
 
-        setup_files = HighFidelityEphemerisModel.write_full_setups_for_state_files_exact!(
-            state_result.state_files;
-            outdir = setup_dir,
-            output_spk_type = 13,
-            object_id = -123456,
-            center_id = 399,
-            ref_frame_name = "J2000",
-            producer_id = "HighFidelityEphemerisModel.jl",
-            leapseconds_file = "naif0012.tls",
-            polynom_degree = 7,
-            segment_id = "TEST_SEGMENT",
+        sampled = HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+            sols,
+            [(1, 1)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
             verbose = false,
             show_progress = false,
         )
 
-        @test length(setup_files) == 1
-        @test isfile(setup_files[1])
-
-        setup_text = read(setup_files[1], String)
-
-        @test occursin("INPUT_DATA_TYPE", setup_text)
-        @test occursin("OUTPUT_SPK_TYPE   = 13", setup_text)
-        @test occursin("OBJECT_ID", setup_text)
-        @test occursin("-123456", setup_text)
-        @test occursin("CENTER_ID", setup_text)
-        @test occursin("399", setup_text)
-        @test occursin("REF_FRAME_NAME", setup_text)
-        @test occursin("J2000", setup_text)
-        @test occursin("SEGMENT_ID", setup_text)
-        @test occursin("TEST_SEGMENT", setup_text)
-        @test occursin("EARLIEST_EPOCH", setup_text)
-        @test occursin("LATEST_EPOCH", setup_text)
+        @test length(sampled.segments) == 1
+        @test sampled.epoch_ranges[1] == (1000.0, 1100.0)
+        @test sampled.point_counts == [3]
+        @test sampled.segments[1].epochs == [1000.0, 1050.0, 1100.0]
+        @test sampled.segments[1].states[1] ≈ [10.0, 20.0, 30.0, 0.04, 0.05, 0.06]
+        @test sampled.segments[1].states[end] ≈ [11.0, 22.0, 33.0, 0.044, 0.055, 0.066]
 
         single_segment = HighFidelityEphemerisModel.write_solution_segment_states_for_spk!(
             sols[1],
@@ -170,7 +223,8 @@ end
     end
 end
 
-@testset "SPK maneuver and metadata helpers" begin
+
+function test_spk_maneuver_and_metadata_helpers()
     parameters = (
         TU = 100.0,
         DU = 10.0,
@@ -205,6 +259,7 @@ end
     @test summary["count"] == 1
     @test summary["total_delta_v_mps"] ≈ 1.0
 
+    # Row 4 is the scalar OCP cost convention used by station-keeping.
     ocp_control = [
         0.01 0.0;
         0.0  0.02;
@@ -223,11 +278,12 @@ end
 
     @test length(ocp_entries) == 2
     @test ocp_summary["total_control_scalar_mps"] ≈ 0.3
+    @test ocp_summary["total_control_vector_norm_mps"] ≈ 0.3
 
     mktempdir() do tmpdir
         metadata = HighFidelityEphemerisModel.build_spk_metadata(
             output_spk = joinpath(tmpdir, "test.bsp"),
-            maneuver_file = joinpath(tmpdir, "maneuvers.txt"),
+            maneuver_file = nothing,
             metadata_json = joinpath(tmpdir, "metadata.json"),
             spice_id = -123456,
             center_id = 399,
@@ -236,6 +292,7 @@ end
             et0 = parameters.et0,
             maneuver_summary = summary,
             ocp_control_summary = ocp_summary,
+            ocp_control_file = joinpath(tmpdir, "executed_maneuvers.txt"),
         )
 
         @test metadata["spk"]["object_id"] == -123456
@@ -243,8 +300,11 @@ end
         @test metadata["coverage"]["start_et"] == 1000.0
         @test metadata["coverage"]["end_et"] == 1100.0
         @test metadata["sampling"]["segment_count"] == 1
-        @test metadata["maneuvers"]["total_delta_v_mps"] ≈ 1.0
-        @test haskey(metadata["maneuvers"], "ocp_control")
+        @test metadata["maneuvers"]["is_primary"] == true
+        @test metadata["maneuvers"]["type"] == "ocp_control"
+        @test metadata["maneuvers"]["primary_cost_key"] == "total_control_scalar_mps"
+        @test metadata["maneuvers"]["total_control_scalar_mps"] ≈ 0.3
+        @test haskey(metadata["maneuvers"], "trajectory_jumps")
 
         json_path = joinpath(tmpdir, "metadata.json")
         HighFidelityEphemerisModel.write_spk_metadata_json(json_path, metadata)
@@ -253,97 +313,173 @@ end
     end
 end
 
-@testset "ODE solution to SPK end-to-end" begin
-    mkspk_cmd = get(ENV, "MKSPK_CMD", "mkspk")
-    lsk_path = _find_test_lsk()
 
-    if !_mkspk_available(mkspk_cmd) || lsk_path === nothing
-        @info "Skipping end-to-end SPK test because mkspk or the leapseconds kernel is unavailable." mkspk_cmd lsk_path
-        @test_skip _mkspk_available(mkspk_cmd) && lsk_path !== nothing
-    else
-        spice_id = -123456
-        center_id = 399
-        et0 = 1000.0
+function test_ode_sol_to_native_spk()
+    spice_id = -123456
+    center_id = 399
+    et0 = 1000.0
+    parameters = _mock_parameters(et0 = et0)
+    sols = _mock_sols()
 
-        parameters = (
-            TU = 100.0,
-            DU = 1000.0,
-            VU = 10.0,
-            et0 = et0,
-            naif_ids = ["399"],
-            GMs = [1.0],
-            include_srp = false,
+    tmpdir_removed = mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "test_ode_sol_to_spk.bsp")
+
+        # Treat this as the primary maneuver product, matching OCP/executed-control use.
+        ocp_control = [
+            0.01 0.0;
+            0.0  0.02;
+            0.0  0.0;
+            0.01 0.02;
+        ]
+        ocp_times = [sols[1].t[1], sols[2].t[1]]
+
+        result = HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols,
+            et0,
+            parameters;
+            output_spk = output_spk,
+            spice_id = spice_id,
+            center_id = center_id,
+            ref_frame_name = "J2000",
+            output_spk_type = 13,
+            polynom_degree = 7,
+            segment_id = "TEST_ODE_SOL_TO_SPK",
+            dt_sec = 100.0,
+            segment_gap_sec = 1e-7,
+            keep_intermediates = false,
+            write_maneuvers = false,
+            ocp_control = ocp_control,
+            ocp_control_times = ocp_times,
+            write_metadata = true,
+            verbose = false,
+            show_progress = false,
         )
 
-        r0 = [1.0, 2.0, 3.0]
-        v0 = [0.01, -0.02, 0.03]
-        x0 = vcat(r0, v0)
-        xdot = vcat(v0, zeros(3))
+        @test isfile(result.output_spk)
+        @test isfile(result.maneuver_txt)
+        @test isfile(result.ocp_maneuver_txt)
+        @test result.maneuver_txt == result.ocp_maneuver_txt
+        @test result.trajectory_maneuver_txt === nothing
+        @test isfile(result.metadata_json)
+        @test result.segment_count == 2
+        @test result.intermediate_dir === nothing
+        @test isempty(result.state_files)
+        @test isempty(result.setup_files)
+        @test result.ocp_control_summary["total_control_scalar_mps"] ≈ 300.0
 
-        sols = [
-            MockCoastArc([0.0, 8.0], x0, xdot),
-            MockCoastArc([8.0, 16.0], x0, xdot),
-        ]
+        maneuver_text = read(result.maneuver_txt, String)
+        @test occursin("DV_scalar_u4_mps", maneuver_text)
+        @test occursin("1.000000000000000e+02", maneuver_text)
+        @test occursin("2.000000000000000e+02", maneuver_text)
 
-        tmpdir_removed = mktempdir() do tmpdir
-            output_spk = joinpath(tmpdir, "test_ode_sol_to_spk.bsp")
+        metadata_text = read(result.metadata_json, String)
+        @test occursin("\"type\": \"ocp_control\"", metadata_text)
+        @test occursin("\"primary_cost_key\": \"total_control_scalar_mps\"", metadata_text)
+        @test occursin("\"trajectory_jumps\"", metadata_text)
 
-            result = HighFidelityEphemerisModel.ode_sol_to_spk(
-                sols,
-                et0,
-                parameters;
-                output_spk = output_spk,
-                spice_id = spice_id,
-                center_id = center_id,
-                ref_frame_name = "J2000",
-                output_spk_type = 13,
-                polynom_degree = 7,
-                segment_id = "TEST_ODE_SOL_TO_SPK",
-                leapseconds_file = lsk_path,
-                mkspk_cmd = mkspk_cmd,
-                dt_sec = 100.0,
-                segment_gap_sec = 1e-7,
-                keep_intermediates = false,
-                write_maneuvers = true,
-                write_metadata = true,
-                verbose = false,
-                show_progress = false,
-            )
+        # Validate that the BSP can be furnished and reproduces the source arcs.
+        _validate_spk_against_sols(
+            result.output_spk,
+            sols,
+            (1.25, 6.5, 9.25, 14.75),
+            parameters;
+            spice_id = spice_id,
+            center_id = center_id,
+        )
 
-            @test isfile(result.output_spk)
-            @test isfile(result.maneuver_txt)
-            @test isfile(result.metadata_json)
-            @test result.segment_count == 2
-            @test result.intermediate_dir === nothing
-
-            SPICE.furnsh(result.output_spk)
-            try
-                for t_nd in (1.25, 6.5, 9.25, 14.75)
-                    et = et0 + t_nd * parameters.TU
-                    state_spk, _ = SPICE.spkezr(
-                        string(spice_id),
-                        et,
-                        "J2000",
-                        "NONE",
-                        string(center_id),
-                    )
-
-                    x_ref = sols[t_nd <= 8.0 ? 1 : 2](t_nd)
-                    state_ref = vcat(
-                        x_ref[1:3] .* parameters.DU,
-                        x_ref[4:6] .* parameters.VU,
-                    )
-
-                    @test state_spk[1:3] ≈ state_ref[1:3] atol = 1e-7
-                    @test state_spk[4:6] ≈ state_ref[4:6] atol = 1e-10
-                end
-            finally
-                SPICE.unload(result.output_spk)
-            end
-
-            tmpdir
-        end
-
-        @test !isdir(tmpdir_removed)
+        tmpdir
     end
+
+    @test !isdir(tmpdir_removed)
 end
+
+
+function test_incremental_native_spk_append()
+    spice_id = -123457
+    center_id = 399
+    et0 = 1000.0
+    parameters = _mock_parameters(et0 = et0)
+    sols = _mock_sols()
+
+    tmpdir_removed = mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "test_append_ode_sol_to_spk.bsp")
+
+        result1 = HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols[1],
+            et0,
+            parameters;
+            output_spk = output_spk,
+            spice_id = spice_id,
+            center_id = center_id,
+            ref_frame_name = "J2000",
+            output_spk_type = 13,
+            polynom_degree = 7,
+            segment_id = "TEST_APPEND",
+            segment_id_per_seg = true,
+            append = false,
+            overwrite = true,
+            segment_index = 1,
+            dt_sec = 100.0,
+            segment_gap_sec = 1e-7,
+            write_maneuvers = false,
+            write_ocp_maneuvers = false,
+            write_metadata = false,
+            verbose = false,
+            show_progress = false,
+        )
+
+        result2 = HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols[2],
+            et0,
+            parameters;
+            output_spk = output_spk,
+            spice_id = spice_id,
+            center_id = center_id,
+            ref_frame_name = "J2000",
+            output_spk_type = 13,
+            polynom_degree = 7,
+            segment_id = "TEST_APPEND",
+            segment_id_per_seg = true,
+            append = true,
+            segment_index = 2,
+            dt_sec = 100.0,
+            segment_gap_sec = 0.0,
+            write_maneuvers = false,
+            write_ocp_maneuvers = false,
+            write_metadata = false,
+            verbose = false,
+            show_progress = false,
+        )
+
+        @test isfile(output_spk)
+        @test result1.segment_count == 1
+        @test result1.segment_index == 1
+        @test result1.appended == false
+        @test result2.segment_count == 1
+        @test result2.segment_index == 2
+        @test result2.appended == true
+        @test result2.output_spk == abspath(output_spk)
+
+        # This is the key station-keeping use case: append separate arcs to the
+        # same BSP and then query the combined product.
+        _validate_spk_against_sols(
+            output_spk,
+            sols,
+            (1.25, 6.5, 9.25, 14.75),
+            parameters;
+            spice_id = spice_id,
+            center_id = center_id,
+        )
+
+        tmpdir
+    end
+
+    @test !isdir(tmpdir_removed)
+end
+
+
+test_spk_helper_utilities()
+test_spk_state_sampling()
+test_spk_maneuver_and_metadata_helpers()
+test_ode_sol_to_native_spk()
+test_incremental_native_spk_append()

@@ -2,14 +2,9 @@
 
 This tutorial shows how to convert ODE solution segments into files that can be used with SPICE-based analysis and visualization workflows.
 
-The main helper is `ode_sol_to_spk`. It writes a BSP/SPK file from one or more ODE solution segments and can also write maneuver and metadata sidecar files.
+The main helper is `ode_sol_to_spk`. It writes a BSP/SPK file from one or more ODE solution segments using native SPICE SPK writing routines. It can also write maneuver and metadata sidecar files.
 
-!!! tip
-
-    Before running this workflow, make sure you have a local copy of NAIF `mkspk` available. You can either put `mkspk` on your system path or set `ENV["MKSPK_CMD"]` to the full path of the executable.
-
-    The automated tests use the same pattern: GitHub Actions downloads the Linux `mkspk` executable and passes its path through `ENV["MKSPK_CMD"]`.
-
+The current implementation writes SPK type-13 segments directly through SPICE. No external SPK-writing executable is required.
 
 ## Expected ODE solution format
 
@@ -36,13 +31,13 @@ parameters.DU   # kilometers per nondimensional distance unit
 parameters.VU   # kilometers/second per nondimensional velocity unit
 ```
 
-Internally, states are converted before writing the MKSPK `STATES` files:
+Internally, states are converted before writing the SPK:
 
 ```julia
 r_km   = x_nd[1:3] .* parameters.DU
 v_kmps = x_nd[4:6] .* parameters.VU
+et     = et0 + t_nd * parameters.TU
 ```
-
 
 ## Basic SPK generation
 
@@ -50,8 +45,6 @@ A minimal call looks like this:
 
 ```julia
 using HighFidelityEphemerisModel
-
-mkspk_cmd = get(ENV, "MKSPK_CMD", "mkspk")
 
 result = ode_sol_to_spk(
     sols,
@@ -61,13 +54,9 @@ result = ode_sol_to_spk(
     spice_id = -123456,
     center_id = 301,
     ref_frame_name = "J2000",
-    leapseconds_file = "naif0012.tls",
-    mkspk_cmd = mkspk_cmd,
     dt_sec = 1800.0,
     segment_gap_sec = 1e-7,
-    write_maneuvers = true,
     write_metadata = true,
-    keep_intermediates = false,
 )
 ```
 
@@ -78,7 +67,7 @@ Here:
 - `spice_id` is the NAIF object ID assigned to the generated trajectory,
 - `center_id` is the NAIF ID of the central body,
 - `ref_frame_name` is the frame used for the states written to the SPK,
-- `dt_sec` is the sampling interval used to create the MKSPK input files,
+- `dt_sec` is the sampling interval used for each SPK segment,
 - `segment_gap_sec` trims the right endpoint of non-final segments to avoid overlapping SPK coverage at impulsive boundaries.
 
 The returned `result` is a `NamedTuple` containing generated paths and summaries:
@@ -86,11 +75,12 @@ The returned `result` is a `NamedTuple` containing generated paths and summaries
 ```julia
 result.output_spk
 result.maneuver_txt
+result.ocp_maneuver_txt
+result.trajectory_maneuver_txt
 result.metadata_json
 result.segment_count
-result.maneuver_summary
+result.epoch_ranges
 ```
-
 
 ## BSP/SPK file
 
@@ -118,36 +108,44 @@ result = ode_sol_to_spk(
 
 Each tuple in `coast_windows` gives the first and last ODE solution segment included in that SPK segment.
 
+## Incremental append workflow
 
-## Maneuver file
-
-If `write_maneuvers = true`, the helper writes a maneuver file next to the BSP:
-
-```julia
-result.maneuver_txt
-```
-
-This file contains reconstructed velocity jumps between adjacent ODE solution segments. For segments `sols[k]` and `sols[k+1]`, the maneuver is computed from the difference between the terminal velocity of `sols[k]` and the initial velocity of `sols[k+1]`.
-
-The file format is
-
-```text
-# ETSECONDS,DVX_mps,DVY_mps,DVZ_mps
-```
-
-where the maneuver components are dimensional and expressed in m/s.
-
-The total maneuver cost is summarized in the returned result:
+For station-keeping simulations, the function can append one propagated ODE arc at a time. This avoids storing every ODE solution in memory until the end of the run.
 
 ```julia
-result.maneuver_summary["total_delta_v_mps"]
-result.maneuver_summary["total_delta_v_cmps"]
+output_spk = "sk_seed_001_native_true.bsp"
+
+for k in 1:N_recurse
+    # solve OCP, apply/corrupt the first maneuver, and propagate truth here
+    # sol_recurse is the ODE solution for this one recursion interval
+
+    result = ode_sol_to_spk(
+        sol_recurse,
+        et0,
+        parameters;
+        output_spk = output_spk,
+        spice_id = -200001,
+        center_id = 301,
+        ref_frame_name = "J2000",
+        append = k > 1,
+        overwrite = k == 1,
+        segment_index = k,
+        dt_sec = 1800.0,
+        segment_gap_sec = k < N_recurse ? 1e-7 : 0.0,
+        write_metadata = false,
+    )
+end
 ```
 
+The first call creates the BSP. Later calls append new SPK type-13 segments to the same BSP.
 
-## OCP maneuver file
+## Maneuver files
 
-For optimal-control or station-keeping workflows, the optimizer control history can be written as a separate maneuver file:
+There are two maneuver-file concepts.
+
+### Primary executed/OCP maneuver file
+
+For optimal-control or station-keeping workflows, the main maneuver product can be written from a control history:
 
 ```julia
 result = ode_sol_to_spk(
@@ -163,16 +161,33 @@ result = ode_sol_to_spk(
 )
 ```
 
-This writes an additional file:
+Rows 1:3 of `ocp_control` are the vector control components. If row 4 is present, it is treated as the scalar control/slack variable used by the OCP formulation. The scalar convention is summarized in metadata.
+
+For station-keeping truth products, pass the actually applied/corrupted control history as the `ocp_control` input. In that case, the maneuver file represents executed maneuvers, not the originally planned control.
+
+### Trajectory-jump diagnostic maneuver file
+
+If `write_maneuvers = true`, the helper can also write a diagnostic maneuver file reconstructed from velocity jumps between adjacent ODE solution segments:
 
 ```julia
-result.ocp_maneuver_txt
+result = ode_sol_to_spk(
+    sols,
+    et0,
+    parameters;
+    output_spk = "trajectory.bsp",
+    spice_id = -123456,
+    center_id = 301,
+    write_maneuvers = true,
+)
 ```
 
-The OCP maneuver file is separate from the reconstructed trajectory-jump maneuver file. The reconstructed maneuver file describes velocity discontinuities between adjacent ODE solution segments. The OCP maneuver file describes the optimizer-side commanded control history.
+The diagnostic file is separate from the executed/OCP control file. It contains:
 
-Rows 1:3 of `ocp_control` are treated as the vector control components. If row 4 is present, it is treated as the scalar magnitude or slack variable used by some OCP formulations.
+```text
+# ETSECONDS,DVX_mps,DVY_mps,DVZ_mps
+```
 
+For incremental single-arc station-keeping output, trajectory-jump diagnostics are usually disabled because each call only has one arc.
 
 ## Metadata JSON
 
@@ -189,7 +204,7 @@ The metadata file records information such as:
 - center ID or center name,
 - reference frame,
 - SPK type and polynomial degree,
-- leapseconds and frame-definition files,
+- optional leapseconds/frame-definition paths for traceability,
 - segment coverage windows,
 - sampling interval and segment gap,
 - nondimensional scaling values,
@@ -211,7 +226,7 @@ result = ode_sol_to_spk(
         "SRP" => Dict(
             "enabled" => true,
             "Cr" => 1.15,
-            "A_over_m" => 0.002,
+            "A_over_m" => 0.016,
             "P0" => 4.56e-6,
         ),
         "spherical_harmonics" => Dict(
@@ -237,7 +252,7 @@ result = ode_sol_to_spk(
     dynamics_name = "eom_NbodySH_SPICE!",
     srp_enabled = true,
     srp_Cr = 1.15,
-    srp_Am = 0.002,
+    srp_Am = 0.016,
     srp_P0 = 4.56e-6,
     spherical_harmonics_enabled = true,
     spherical_harmonics_body = "Moon",
@@ -245,7 +260,6 @@ result = ode_sol_to_spk(
     spherical_harmonics_frame = "MOON_PA",
 )
 ```
-
 
 ## Label files
 
@@ -260,47 +274,13 @@ center_id
 ref_frame_name
 ```
 
-The exact label format depends on the downstream tool. A simple label-writing step can therefore be kept separate from `ode_sol_to_spk`, for example:
+The exact label format depends on the downstream tool. A simple label-writing step can therefore be kept separate from `ode_sol_to_spk`.
 
-```julia
-label_path = replace(result.output_spk, ".bsp" => "_label.json")
+## Intermediate/debug files
 
-open(label_path, "w") do io
-    println(io, """
-    {
-      "spk_file": "$(basename(result.output_spk))",
-      "object_id": "$(spice_id)",
-      "object_name": "TRAJECTORY",
-      "center_id": "$(center_id)",
-      "frame": "$(ref_frame_name)"
-    }
-    """)
-end
-```
+The native pipeline samples states in memory and writes the BSP directly with SPICE. It does not need setup files or an external SPK-writing executable.
 
-For mission-specific visualization, add any additional display fields required by the viewer, such as trajectory color, label text, or object radius.
-
-
-## Intermediate files
-
-Internally, the helper writes MKSPK `STATES` files and MKSPK setup files. By default, these are written into a temporary directory and removed after the BSP is generated:
-
-```julia
-keep_intermediates = false
-```
-
-For debugging, set:
-
-```julia
-keep_intermediates = true
-```
-
-When intermediate files are kept, their directory is returned in
-
-```julia
-result.intermediate_dir
-```
-
+For debugging, state text files can still be written with lower-level helper functions such as `write_segmented_states_for_spk!` or `write_solution_segment_states_for_spk!`. These files are for inspection only; they are not required for normal BSP generation.
 
 ## Validating the generated BSP
 
@@ -335,4 +315,4 @@ finally
 end
 ```
 
-This is the same validation strategy used in the automated end-to-end test. The test generates a small BSP, furnishes it, queries states from the BSP, compares them against the original ODE solution, unloads the BSP, and checks that the generated files are removed after the test.
+This is the same validation strategy used in the automated end-to-end tests. The tests generate small BSPs with native SPICE, furnish them, query states from the BSP, compare them against the original ODE solutions, unload the BSPs, and check that temporary files are cleaned up.

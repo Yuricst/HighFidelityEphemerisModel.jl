@@ -1,5 +1,10 @@
 """Maneuver-file writers for SPK generation"""
 
+# Two maneuver products are supported:
+#   1. trajectory-jump diagnostics reconstructed from adjacent coast arcs,
+#   2. OCP/executed controls passed explicitly through `ocp_control`.
+# Station-keeping truth products usually use (2) as the primary maneuver file.
+
 
 """
     collect_node_to_node_maneuvers_mps(sols, et0, parameters)
@@ -9,11 +14,6 @@ jump between `sols[k]` end and `sols[k+1]` start, converted to m/s.
 
 The returned vector is used for both the maneuver text file and metadata JSON so
 those two products remain consistent.
-
-# Arguments
-- `sols`: vector of coast-arc ODE solutions
-- `et0`: reference epoch in seconds past J2000
-- `parameters`: object containing `TU` and `VU`
 """
 function collect_node_to_node_maneuvers_mps(sols, et0, parameters)
     entries = Any[]
@@ -24,6 +24,8 @@ function collect_node_to_node_maneuvers_mps(sols, et0, parameters)
         x_end = sols[k](t_end)
         x_start = sols[k + 1](sols[k + 1].t[1])
 
+        # This is a diagnostic jump implied by the state history itself. It is
+        # not necessarily the same as the commanded/executed control from an OCP.
         dv_nd = x_start[4:6] - x_end[4:6]
         dv_kmps = dv_nd .* parameters.VU
         dv_mps = dv_kmps .* 1000.0
@@ -97,6 +99,12 @@ Rows 1:3 are always summarized as vector-norm controls when available.
 function summarize_ocp_control_mps(ocp_control, parameters)
     nrow = size(ocp_control, 1)
     ncol = size(ocp_control, 2)
+
+    # Convert nondimensional velocity control to physical m/s once, then use the
+    # same scale for scalar and vector summaries.
+
+    # Convert nondimensional velocity control to physical m/s once, then use
+    # the same scale for scalar and vector summaries.
     vu_to_mps = Float64(parameters.VU) * 1000.0
 
     summary = Dict{String,Any}(
@@ -106,6 +114,8 @@ function summarize_ocp_control_mps(ocp_control, parameters)
     )
 
     if nrow >= 3
+        # Rows 1:3 are the vector control components. Keep their norm as a
+        # diagnostic even when row 4 is the primary OCP cost.
         vec_norms_nd = [sqrt(sum(abs2, ocp_control[1:3, k])) for k in 1:ncol]
         vec_norms_mps = Float64.(vec_norms_nd) .* vu_to_mps
         total_vec = sum(vec_norms_mps)
@@ -120,6 +130,8 @@ function summarize_ocp_control_mps(ocp_control, parameters)
     end
 
     if nrow >= 4
+        # Row 4 is the scalar control/slack variable minimized by the OCP
+        # objective in the station-keeping experiments.
         scalar_nd = Float64.(ocp_control[4, :])
         scalar_mps = scalar_nd .* vu_to_mps
         total_scalar = sum(scalar_mps)
@@ -144,16 +156,14 @@ Collect optimizer-commanded impulse entries from an OCP control matrix, e.g.
 `solution.u`, and a matching nondimensional time vector. Rows 1:3 are treated
 as the commanded vector impulse. Row 4, when present, is treated as the scalar
 magnitude/slack variable used by the objective.
-
-# Arguments
-- `ocp_control_times`: nondimensional control epochs
-- `ocp_control`: control matrix with vector components in rows 1:3
-- `et0`: reference epoch in seconds past J2000
-- `parameters`: object containing `TU` and `VU`
 """
 function collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, parameters)
     nrow = size(ocp_control, 1)
     ncol = size(ocp_control, 2)
+
+    # Convert nondimensional velocity control to physical m/s once, then use the
+    # same scale for scalar and vector summaries.
+
     nrow >= 3 || error("`ocp_control` must have at least 3 rows for DVX/DVY/DVZ.")
     length(ocp_control_times) == ncol || error("`ocp_control_times` length ($(length(ocp_control_times))) must match number of OCP control columns ($(ncol)).")
 
@@ -161,6 +171,7 @@ function collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, 
     entries = Any[]
 
     for k in 1:ncol
+        # Each row is tied to the control epoch used by the OCP/SK loop.
         t_nd = Float64(ocp_control_times[k])
         et = Float64(et0 + t_nd * parameters.TU)
 
