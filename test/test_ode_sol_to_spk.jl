@@ -470,8 +470,7 @@ function test_incremental_native_spk_append()
             spice_id = spice_id,
             center_id = center_id,
         )
-
-        tmpdir
+        return tmpdir
     end
 
     @test !isdir(tmpdir_removed)
