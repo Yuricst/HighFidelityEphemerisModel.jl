@@ -1,6 +1,7 @@
 name: test
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -38,15 +39,6 @@ jobs:
           curl -L -o ./spice/test/moon_de440_250416.tf "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/satellites/moon_de440_250416.tf"
           curl -L -o ./spice/test/receding_horiz_3189_1burnApo_DiffCorr_15yr.bsp "https://naif.jpl.nasa.gov/pub/naif/misc/MORE_PROJECTS/DSG/receding_horiz_3189_1burnApo_DiffCorr_15yr.bsp"
 
-      - name: Download MKSPK
-        run: |
-          mkdir -p ./spice/tools
-          curl -L -o ./spice/tools/cspice.tar.Z "https://naif.jpl.nasa.gov/pub/naif/toolkit/C/PC_Linux_GCC_64bit/packages/cspice.tar.Z"
-          sudo apt-get update
-          sudo apt-get install -y ncompress
-          uncompress -c ./spice/tools/cspice.tar.Z | tar -xf - -C ./spice/tools
-          chmod +x ./spice/tools/cspice/exe/mkspk
-          echo "MKSPK_CMD=$GITHUB_WORKSPACE/spice/tools/cspice/exe/mkspk" >> $GITHUB_ENV
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.julia-version }}
