@@ -24,6 +24,7 @@ end
     include("test_drag_jacchiaroberts.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
+    include("test_Nbody_Ephemerides.jl")
     include("test_Nbody_ensemble.jl")
 end
 
