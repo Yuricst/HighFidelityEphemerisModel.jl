@@ -12,7 +12,7 @@ What `HighFidelityEphemerisModel.jl` contains:
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) impemented (at least for now)
 
-We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`, `SparseDiffTools`.
+We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`.
 
 
 ## Install

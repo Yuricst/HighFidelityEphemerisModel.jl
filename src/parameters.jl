@@ -27,9 +27,6 @@ mutable struct HighFidelityEphemerisModelParameters
     omega_atm::Vector{Float64}
     f_density::Union{Nothing,Function}
 
-    adtype
-    jacobian_cache
-
     u::Vector
 end
 
@@ -193,8 +190,6 @@ function HighFidelityEphemerisModelParameters(
         k_drag,
         omega_atm,
         f_density,
-        nothing,        # adtype, defaults to nothing
-        nothing,        # jacobian_cache, defaults to nothing
         zeros(nu),
     )
 end
