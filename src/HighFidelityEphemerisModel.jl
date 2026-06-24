@@ -1,5 +1,6 @@
 module HighFidelityEphemerisModel
 
+using Ephemerides
 using Dierckx
 using ForwardDiff
 using Interpolations
@@ -19,6 +20,7 @@ include("perturbations/jacchiaroberts.jl")
 
 include("ephemeris_interpolation.jl")
 include("transformation_interpolation.jl")
+include("ephemerides.jl")
 include("parameters.jl")
 include("jacobians_symbolic.jl")
 include("jacobians_sparsediff.jl")
@@ -42,6 +44,7 @@ export eom_jacobian_fd, eom_hessian_fd, et_to_utc_mjd
 
 export InterpolatedEphemeris
 export InterpolatedTransformation
+export get_pos_ephemerides, get_state_ephemerides
 export HighFidelityEphemerisModelParameters
 
 export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE!, eom_stm_Nbody_SPICE_fd!

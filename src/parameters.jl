@@ -17,6 +17,7 @@ mutable struct HighFidelityEphemerisModelParameters
     frame_PCPF::Union{Nothing,String}
     factorial_alias::Function
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
+    ephemerides_provider
 
     include_srp::Bool
     k_srp_cannonball::Float64
@@ -73,6 +74,8 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `get_jacobian_func::Bool`: whether to construct symbolic Jacobian function (only for `Nbody` dynamics)
 - `interpolate_ephem_span::Union{Nothing,Vector{Float64}}`: span of epochs to interpolate ephemerides
 - `interpolation_time_step::Real`: time step for interpolation
+- `ephemerides_provider`: existing `Ephemerides.EphemerisProvider`
+- `ephemerides_files::Union{Nothing,String,Vector{String}}`: SPK/PCK file path(s) used to construct an `Ephemerides.EphemerisProvider`
 - `include_srp::Bool`: whether to include SRP terms
 - `srp_Cr::Float64`: SRP radiation pressure coefficient
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
@@ -100,6 +103,8 @@ function HighFidelityEphemerisModelParameters(
     get_jacobian_func::Bool = true,
     interpolate_ephem_span::Union{Nothing,Vector{Float64}} = nothing,
     interpolation_time_step::Real = 3600.0,
+    ephemerides_provider = nothing,
+    ephemerides_files::Union{Nothing,String,Vector{String}} = nothing,
     include_srp::Bool = false,
     srp_Cr::Float64 = 1.15,
     srp_Am::Float64 = 0.002,
@@ -160,6 +165,15 @@ function HighFidelityEphemerisModelParameters(
         end
     end
 
+    # initialize Ephemerides.jl provider
+    if !isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
+        error("Provide either `ephemerides_provider` or `ephemerides_files`, not both.")
+    end
+
+    if isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
+        ephemerides_provider = Ephemerides.EphemerisProvider(ephemerides_files)
+    end
+
     # Spherical-harmonic acceleration evaluates Legendre terms up to degree nmax + 1,
     # whose summation uses factorial(2 * (nmax + 1)). Int factorial is safe only
     # through factorial(20), so switch before nmax reaches 10.
@@ -204,6 +218,7 @@ function HighFidelityEphemerisModelParameters(
         frame_PCPF,
         factorial_alias,
         interpolated_transformation,
+        ephemerides_provider,
         include_srp,
         k_srp_cannonball,
         idx_sun,
