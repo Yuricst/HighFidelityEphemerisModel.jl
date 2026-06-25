@@ -13,15 +13,27 @@ end
 
 
 function ephemerides_test_kernel_paths()
-    spice_dir = ENV["SPICE"]
+    if haskey(ENV, "SPICE")
+        spice_dir = ENV["SPICE"]
 
-    return (
-        lsk = joinpath(spice_dir, "lsk", "naif0012.tls"),
-        spk = joinpath(spice_dir, "spk", "de440.bsp"),
-        gm = joinpath(spice_dir, "pck", "gm_de440.tpc"),
-        bpc = joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc"),
-        fk = joinpath(spice_dir, "fk", "moon_de440_250416.tf"),
-    )
+        return (
+            lsk = joinpath(spice_dir, "lsk", "naif0012.tls"),
+            spk = joinpath(spice_dir, "spk", "de440.bsp"),
+            gm = joinpath(spice_dir, "pck", "gm_de440.tpc"),
+            bpc = joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc"),
+            fk = joinpath(spice_dir, "fk", "moon_de440_250416.tf"),
+        )
+    else
+        spice_dir = joinpath(@__DIR__, "../spice/test")
+
+        return (
+            lsk = joinpath(spice_dir, "naif0012.tls"),
+            spk = joinpath(spice_dir, "de440.bsp"),
+            gm = joinpath(spice_dir, "gm_de440.tpc"),
+            bpc = joinpath(spice_dir, "moon_pa_de440_200625.bpc"),
+            fk = joinpath(spice_dir, "moon_de440_250416.tf"),
+        )
+    end
 end
 
 
