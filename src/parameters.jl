@@ -18,6 +18,7 @@ mutable struct HighFidelityEphemerisModelParameters
     factorial_alias::Function
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
     ephemerides_provider
+    ephemerides_frame_system
 
     include_srp::Bool
     k_srp_cannonball::Float64
@@ -76,6 +77,7 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `interpolation_time_step::Real`: time step for interpolation
 - `ephemerides_provider`: existing `Ephemerides.EphemerisProvider`
 - `ephemerides_files::Union{Nothing,String,Vector{String}}`: SPK/PCK file path(s) used to construct an `Ephemerides.EphemerisProvider`
+- `ephemerides_frame_system`: existing `FrameTransformations.FrameSystem` used for Ephemerides-backed frame transforms
 - `include_srp::Bool`: whether to include SRP terms
 - `srp_Cr::Float64`: SRP radiation pressure coefficient
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
@@ -105,6 +107,7 @@ function HighFidelityEphemerisModelParameters(
     interpolation_time_step::Real = 3600.0,
     ephemerides_provider = nothing,
     ephemerides_files::Union{Nothing,String,Vector{String}} = nothing,
+    ephemerides_frame_system = nothing,
     include_srp::Bool = false,
     srp_Cr::Float64 = 1.15,
     srp_Am::Float64 = 0.002,
@@ -174,6 +177,10 @@ function HighFidelityEphemerisModelParameters(
         ephemerides_provider = Ephemerides.EphemerisProvider(ephemerides_files)
     end
 
+    if isnothing(ephemerides_frame_system) && !isnothing(ephemerides_provider)
+        ephemerides_frame_system = build_ephemerides_frame_system(ephemerides_provider, frame_PCPF)
+    end
+
     # Spherical-harmonic acceleration evaluates Legendre terms up to degree nmax + 1,
     # whose summation uses factorial(2 * (nmax + 1)). Int factorial is safe only
     # through factorial(20), so switch before nmax reaches 10.
@@ -219,6 +226,7 @@ function HighFidelityEphemerisModelParameters(
         factorial_alias,
         interpolated_transformation,
         ephemerides_provider,
+        ephemerides_frame_system,
         include_srp,
         k_srp_cannonball,
         idx_sun,
