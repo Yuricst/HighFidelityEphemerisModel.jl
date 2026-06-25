@@ -7,6 +7,7 @@ Modules = [HighFidelityEphemerisModel]
 Order   = [:function, :type, :struct]
 Pages   = [
   "parameters.jl",
+  "ephemerides.jl",
   "ephemeris_interpolation.jl",
   "transformation_interpolation.jl",
 ]
@@ -20,8 +21,10 @@ Order   = [:function, :type]
 Pages   = [
   "eoms/eom_Nbody_Interp.jl",
   "eoms/eom_Nbody_SPICE.jl",
+  "eoms/eom_Nbody_Ephemerides.jl",
   "eoms/eom_NbodySH_Interp.jl",
-  "eoms/eom_NbodySH_SPICE.jl"
+  "eoms/eom_NbodySH_SPICE.jl",
+  "eoms/eom_NbodySH_Ephemerides.jl",
 ]
 ```
 
