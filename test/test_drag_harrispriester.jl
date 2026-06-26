@@ -8,7 +8,7 @@ if !@isdefined(HighFidelityEphemerisModel)
 end
 
 
-function _drag_stm_parameters(et0)
+function _drag_stm_parameters_harris_priester(et0)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     f_density = HighFidelityEphemerisModel.harris_priester_f_density()
@@ -228,7 +228,7 @@ end
 
 function test_harris_priester_eom_stm(; verbose=false)
     et0 = str2et("2030-01-01T00:00:00")
-    parameters = _drag_stm_parameters(et0)
+    parameters = _drag_stm_parameters_harris_priester(et0)
     x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
     x0_stm = [x0; reshape(I(6), 36)]
 

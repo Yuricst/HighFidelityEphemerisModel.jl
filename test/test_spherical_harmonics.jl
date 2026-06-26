@@ -81,7 +81,6 @@ function test_spherical_harmonics()
         ["301"];
         filepath_spherical_harmonics = filepath,
         nmax = high_degree_nmax,
-        get_jacobian_func = false,
     )
     @test params.factorial_alias === HighFidelityEphemerisModel.factorial_safe
 end

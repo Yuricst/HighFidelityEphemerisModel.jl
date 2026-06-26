@@ -8,8 +8,6 @@ using Interpolations
 using LinearAlgebra
 using Printf
 using SPICE
-import SparseDiffTools
-import Symbolics
 
 include("utils.jl")
 include("perturbations/third_body.jl")
@@ -23,8 +21,6 @@ include("ephemeris_interpolation.jl")
 include("transformation_interpolation.jl")
 include("ephemerides.jl")
 include("parameters.jl")
-include("jacobians_symbolic.jl")
-include("jacobians_sparsediff.jl")
 
 include("eoms/eom_Nbody_SPICE.jl")
 include("eoms/eom_Nbody_Interp.jl")
@@ -58,7 +54,6 @@ export eom_NbodySH_SPICE!, eom_NbodySH_SPICE, eom_stm_NbodySH_SPICE_fd!
 export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
 export eom_NbodySH_Ephemerides!, eom_NbodySH_Ephemerides, dfdx_NbodySH_Ephemerides_fd, eom_stm_NbodySH_Ephemerides_fd!
 
-export set_sparse_jacobian_cache!
 export get_trueanomaly_event
 export HarrisPriesterModel, harris_priester_f_density
 export JacchiaRobertsModel, jacchia_roberts_f_density, JacchiaRobertsGeomagneticExposphericParams

@@ -83,7 +83,7 @@ test_Nbody_Interp_ensemble = function(;verbose = false)
     end
 
     # create ensemble problem
-    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp!, x0_stm, tspan, parameters)
+    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp_fd!, x0_stm, tspan, parameters)
     ensemble_prob = EnsembleProblem(
         prob_base;
         prob_func = prob_func_Nbody_stm
@@ -96,7 +96,7 @@ test_Nbody_Interp_ensemble = function(;verbose = false)
     # solve in serial
     sols_stm_serial = []
     for i = 1:N_traj
-        prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp!, [x0_conditions[i]; reshape(I(6),36)], tspan, parameters)
+        prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Interp_fd!, [x0_conditions[i]; reshape(I(6),36)], tspan, parameters)
         sol = solve(prob, Vern9(), reltol=1e-14, abstol=1e-14)
         push!(sols_stm_serial, sol)
     end
