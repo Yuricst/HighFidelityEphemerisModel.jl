@@ -29,13 +29,6 @@ mutable struct HighFidelityEphemerisModelParameters
     omega_atm::Vector{Float64}
     f_density::Union{Nothing,Function}
 
-    f_jacobian::Union{Nothing,Function}
-    Rs::Vector{Float64}
-    R_sun::Vector{Float64}
-
-    adtype
-    jacobian_cache
-
     u::Vector
 end
 
@@ -72,7 +65,6 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `filepath_spherical_harmonics::Union{Nothing,String}`: path to spherical harmonics data file
 - `nmax::Int`: maximum degree of spherical harmonics to be included
 - `frame_PCPF::Union{Nothing,String}`: NAIF frame of planet-centered planet-fixed frame
-- `get_jacobian_func::Bool`: whether to construct symbolic Jacobian function (only for `Nbody` dynamics)
 - `interpolate_ephem_span::Union{Nothing,Vector{Float64}}`: span of epochs to interpolate ephemerides
 - `interpolation_time_step::Real`: time step for interpolation
 - `ephemerides_provider`: existing `Ephemerides.EphemerisProvider`
@@ -102,7 +94,6 @@ function HighFidelityEphemerisModelParameters(
     filepath_spherical_harmonics::Union{Nothing,String} = nothing,
     nmax::Int = 4,
     frame_PCPF::Union{Nothing,String} = nothing,
-    get_jacobian_func::Bool = true,
     interpolate_ephem_span::Union{Nothing,Vector{Float64}} = nothing,
     interpolation_time_step::Real = 3600.0,
     ephemerides_provider = nothing,
@@ -129,18 +120,6 @@ function HighFidelityEphemerisModelParameters(
         DU, TU, VU = 1.0, 1.0, 1.0  # overwrite canonical scales to 1
         mus = GMs                   # unscaled GM's
     end
-
-    # Jacobian function
-    if get_jacobian_func
-        if include_srp
-            f_jacobian = symbolic_NbodySRP_jacobian(length(GMs))
-        else
-            f_jacobian = symbolic_Nbody_jacobian(length(GMs))
-        end
-    else
-        f_jacobian = nothing
-    end
-    Rs = zeros(3 * (length(mus)-1))  # storage for third-body positions
 
     # initialize interpolated structs
     interpolated_ephems = nothing
@@ -234,9 +213,6 @@ function HighFidelityEphemerisModelParameters(
         k_drag,
         omega_atm,
         f_density,
-        f_jacobian, Rs, zeros(3),
-        nothing,        # adtype, defaults to nothing
-        nothing,        # jacobian_cache, defaults to nothing
         zeros(nu),
     )
 end
