@@ -2,12 +2,30 @@
 
 
 function _get_pos_3body_ephemerides(params, ID::String, t)
+    et = params.et0 + t * params.TU
+
+    # Prefer the FrameTransformations graph because Ephemerides.jl only reads
+    # stored SPK records; FrameTransformations.jl performs the documented
+    # point-chain concatenation for arbitrary target/center pairs.
+    if !isnothing(params.ephemerides_frame_system)
+        return collect(
+            get_pos_ephemerides(
+                params.ephemerides_frame_system,
+                ID,
+                params.naif_ids[1],
+                et;
+                axes = params.naif_frame,
+            )
+        ) / params.DU
+    end
+
+    # Backward-compatible provider-only fallback.
     return collect(
         get_pos_ephemerides(
             params.ephemerides_provider,
             ID,
             params.naif_ids[1],
-            params.et0 + t*params.TU,
+            et,
         )
     ) / params.DU
 end

@@ -45,17 +45,20 @@ test_get_pos_ephemerides = function()
         ephemerides_files = _ephemerides_test_spk(),
     )
 
-    # compare Ephemerides.jl query against SPICE
+    # Compare the preferred FrameTransformations-backed Ephemerides query
+    # against SPICE. Ephemerides.jl reads stored SPK records; the frame system
+    # performs point-chain concatenation for arbitrary target/center pairs.
     r_ephem = HighFidelityEphemerisModel.get_pos_ephemerides(
-        parameters.ephemerides_provider,
+        parameters.ephemerides_frame_system,
         naif_ids[2],
         naif_ids[1],
-        et0,
+        et0;
+        axes = naif_frame,
     )
     r_spice, _ = spkpos(naif_ids[2], et0, naif_frame, abcorr, naif_ids[1])
 
-    @test length(r_ephem) == 3
-    @test collect(r_ephem) ≈ r_spice atol=1e-8
+    @test length(collect(r_ephem)) == 3
+    @test isapprox(collect(r_ephem), r_spice; atol = 1e-10, rtol = 5e-16)
 end
 
 

@@ -97,40 +97,72 @@ function test_pxform_ephemerides()
 end
 
 
+function _test_ephemerides_position_close(frames, target, center, et; atol = 1e-8, rtol = 5e-16)
+    r_ephem = HighFidelityEphemerisModel.get_pos_ephemerides(
+        frames,
+        target,
+        center,
+        et;
+        axes = "J2000",
+    )
+    r_spice, _ = spkpos(string(target), et, "J2000", "NONE", string(center))
+
+    @test isapprox(collect(r_ephem), r_spice; atol = atol, rtol = rtol)
+end
+
+
+function _test_ephemerides_state_close(frames, target, center, et; pos_atol = 1e-8, vel_atol = 5e-14, rtol = 5e-16)
+    x_ephem = collect(
+        HighFidelityEphemerisModel.get_state_ephemerides(
+            frames,
+            target,
+            center,
+            et;
+            axes = "J2000",
+        )
+    )
+    x_spice, _ = spkezr(string(target), et, "J2000", "NONE", string(center))
+
+    @test isapprox(x_ephem[1:3], x_spice[1:3]; atol = pos_atol, rtol = rtol)
+    @test isapprox(x_ephem[4:6], x_spice[4:6]; atol = vel_atol, rtol = rtol)
+end
+
+
 function test_ephemerides_segment_fallbacks()
     paths = furnish_ephemerides_test_kernels()
+
+    # Build the documented Ephemerides + FrameTransformations path.  Ephemerides.jl
+    # only reads stored SPK/PCK records; FrameTransformations.jl performs the
+    # point-chain concatenation for arbitrary target/center pairs.
     provider = Ephemerides.EphemerisProvider(paths.spk)
+    frames = HighFidelityEphemerisModel.build_ephemerides_frame_system(provider)
     et = str2et("2026-01-05T00:00:00")
 
-    r_sun_emb = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "10", "3", et)
-    r_sun_emb_spice, _ = spkpos("10", et, "J2000", "NONE", "3")
-    @test maximum(abs.(collect(r_sun_emb) .- r_sun_emb_spice)) < 1e-6
+    # Stored or near-direct common cases should be much tighter than the old
+    # blanket 1e-6 km fallback tolerance.
+    _test_ephemerides_position_close(frames, "10", "3", et; atol = 5e-8, rtol = 5e-16)
+    _test_ephemerides_position_close(frames, "399", "301", et; atol = 1e-8, rtol = 5e-16)
+    _test_ephemerides_position_close(frames, "10", "301", et; atol = 5e-8, rtol = 5e-16)
 
-    r_earth_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "399", "301", et)
-    r_earth_moon_spice, _ = spkpos("399", et, "J2000", "NONE", "301")
-    @test maximum(abs.(collect(r_earth_moon) .- r_earth_moon_spice)) < 1e-6
-
-    r_sun_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "10", "301", et)
-    r_sun_moon_spice, _ = spkpos("10", et, "J2000", "NONE", "301")
-    @test maximum(abs.(collect(r_sun_moon) .- r_sun_moon_spice)) < 1e-6
-
-    x_earth_moon = HighFidelityEphemerisModel.get_state_ephemerides(provider, "399", "301", et)
-    x_earth_moon_spice, _ = spkezr("399", et, "J2000", "NONE", "301")
-    @test maximum(abs.(collect(x_earth_moon) .- x_earth_moon_spice)) < 1e-6
+    _test_ephemerides_state_close(frames, "399", "301", et; pos_atol = 1e-8, vel_atol = 5e-14)
+    _test_ephemerides_state_close(frames, "10", "301", et; pos_atol = 5e-8, vel_atol = 5e-14)
 
     # Planet-center IDs should chain through their planetary barycenters when
     # direct SPK segments are unavailable to Ephemerides.jl.
     for target in ("199", "299")
-        r_target_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, target, "301", et)
-        r_target_moon_spice, _ = spkpos(target, et, "J2000", "NONE", "301")
-        @test maximum(abs.(collect(r_target_moon) .- r_target_moon_spice)) < 1e-6
+        _test_ephemerides_position_close(frames, target, "301", et; atol = 5e-8, rtol = 5e-16)
+        _test_ephemerides_state_close(frames, target, "301", et; pos_atol = 5e-8, vel_atol = 5e-14)
+    end
 
-        x_target_moon = HighFidelityEphemerisModel.get_state_ephemerides(provider, target, "301", et)
-        x_target_moon_spice, _ = spkezr(target, et, "J2000", "NONE", "301")
-        @test maximum(abs.(collect(x_target_moon) .- x_target_moon_spice)) < 1e-6
+    # Outer barycenter wrt Moon cases involve billion-km vectors composed through
+    # the point graph.  The remaining absolute differences vs CSPICE are near
+    # Float64 roundoff for the vector scale, so use a tight relative tolerance
+    # instead of a blanket absolute 1e-6 km tolerance.
+    for target in ("4", "5", "6", "7", "8", "9")
+        _test_ephemerides_position_close(frames, target, "301", et; atol = 1e-8, rtol = 5e-16)
+        _test_ephemerides_state_close(frames, target, "301", et; pos_atol = 1e-8, vel_atol = 5e-14)
     end
 end
-
 
 function moon_centered_parameters(; backend::Symbol)
     paths = furnish_ephemerides_test_kernels()
