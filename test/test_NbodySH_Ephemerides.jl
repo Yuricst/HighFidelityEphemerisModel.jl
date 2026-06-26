@@ -190,7 +190,7 @@ function test_eom_NbodySH_Ephemerides_matches_SPICE()
     dx_spice = HighFidelityEphemerisModel.eom_NbodySH_SPICE(x0, params_spice, t)
     dx_ephem = HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, params_ephem, t)
 
-    @test maximum(abs.(dx_ephem .- dx_spice)) < 1e-9
+    @test maximum(abs.(dx_ephem .- dx_spice)) < 1e-12
 end
 
 
