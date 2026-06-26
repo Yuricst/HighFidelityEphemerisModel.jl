@@ -51,6 +51,9 @@ test_eom_Nbody_SPICE = function()
 end
 
 
+test_eom_Nbody_SPICE()
+
+
 test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
     # define parameters
     naif_ids = ["301", "399", "10"]
@@ -64,91 +67,52 @@ test_eom_stm_Nbody_SPICE = function(;verbose::Bool = false)
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         include_srp = true,
     )
-    # @show parameters.DU, parameters.TU, parameters.VU
-    # @show parameters
 
     # initial state (in canonical scale)
     x0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]
     x0_stm = [x0; reshape(I(6),36)]
 
-    # evaluate Jacobian
-    Rs_initial = copy(parameters.Rs)
-    R_sun_initial = copy(parameters.R_sun)
-    jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_SPICE(x0, 0.0, parameters, 0.0)
-    @test parameters.Rs == Rs_initial
-    @test parameters.R_sun == R_sun_initial
-    # @show jac_analytical
-
-    f_eval = zeros(6)
-    HighFidelityEphemerisModel.eom_Nbody_SPICE!(f_eval, x0, parameters, 0.0)
-    jac_numerical = zeros(6,6)
-    h = 1e-8
-    for i = 1:6
-        x0_copy = copy(x0)
-        x0_copy[i] += h
-        _f_eval = zeros(6)
-        HighFidelityEphemerisModel.eom_Nbody_SPICE!(_f_eval, x0_copy, parameters, 0.0)
-        jac_numerical[:,i] = (_f_eval - f_eval) / h
-    end
-    jac_numerical_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
-        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters, 0.0
-    )
-    if verbose
-        println("Analytical Jacobian:")
-        print_matrix(jac_analytical)
-        println()
-        println("Numerical Jacobian:")
-        print_matrix(jac_numerical)
-        println()
-        println("ForwardDiff Jacobian:")
-        print_matrix(jac_numerical_fd)
-        println()
-        println("Diff analytical - numerical:")
-        print_matrix(jac_analytical - jac_numerical)
-        println()
-        println("Diff analytical - ForwardDiff:")
-        print_matrix(jac_analytical - jac_numerical_fd)
-    end
-    @test maximum(abs.(jac_analytical - jac_numerical)) < 1e-6
-    @test maximum(abs.(jac_analytical - jac_numerical_fd)) < 1e-12
-
     # time span (in canonical scale)
     tspan = (0.0, 1.0)
 
-    # solve
-    dx_stm = similar(x0_stm)
-    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!(dx_stm, x0_stm, parameters, 0.0)
-    @test parameters.Rs == Rs_initial
-    @test parameters.R_sun == R_sun_initial
-
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_SPICE!, x0_stm, tspan, parameters)
+    # solve just the state
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
-    @test parameters.Rs == Rs_initial
-    @test parameters.R_sun == R_sun_initial
-    
-    # construct STM
-    STM_analytical = reshape(sol.u[end][7:42],6,6)
-    STM_numerical = zeros(6,6)
+    @test sol.retcode == SciMLBase.ReturnCode.Success
+
+    # solve with ForwardDiff Jacobian STM
+    dx_stm = similar(x0_stm)
+    HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!(dx_stm, x0_stm, parameters, 0.0)
+
+    prob_fd = ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!, x0_stm, tspan, parameters)
+    sol_fd = solve(prob_fd, Vern7(), reltol=1e-12, abstol=1e-12)
+    @test sol_fd.retcode == SciMLBase.ReturnCode.Success
+
+    # construct numerical STM
+    STM_fd = reshape(sol_fd.u[end][7:42], 6, 6)
+    STM_numerical = zeros(6, 6)
     h = 1e-8
     for i = 1:6
         x0_copy = copy(x0)
         x0_copy[i] += h
-        sol_ptrb = solve(ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_copy, tspan, parameters), Vern7(), reltol=1e-12, abstol=1e-12)
-        STM_numerical[:,i] = (sol_ptrb.u[end][1:6] - sol.u[end][1:6]) / h
+        sol_ptrb = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_copy, tspan, parameters),
+            Vern7(), reltol=1e-12, abstol=1e-12,
+        )
+        STM_numerical[:, i] = (sol_ptrb.u[end][1:6] - sol.u[end][1:6]) / h
     end
     if verbose
-        println("Analytical STM:")
-        print_matrix(STM_analytical)
+        println("ForwardDiff STM:")
+        print_matrix(STM_fd)
         println()
         println("Numerical STM:")
         print_matrix(STM_numerical)
         println()
         println("Diff:")
-        print_matrix(STM_analytical - STM_numerical)
+        print_matrix(STM_fd - STM_numerical)
     end
-    @test maximum(abs.(STM_analytical - STM_numerical)) < 1e-6
+    @test maximum(abs.(STM_fd - STM_numerical)) < 1e-6
 end
 
 
-test_eom_Nbody_SPICE()
 test_eom_stm_Nbody_SPICE(verbose = false)

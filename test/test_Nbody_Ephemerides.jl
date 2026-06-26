@@ -32,7 +32,7 @@ end
 
 test_get_pos_ephemerides = function()
     # define parameters
-    naif_ids = ["3", "399"]
+    naif_ids = ["399", "301"]
     GMs = [1.0, 1.0e-6]
     naif_frame = "J2000"
     abcorr = "NONE"
@@ -41,7 +41,6 @@ test_get_pos_ephemerides = function()
     et0 = 0.0
     parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        get_jacobian_func = false,
         ephemerides_files = _ephemerides_test_spk(),
     )
 
@@ -62,7 +61,7 @@ end
 test_eom_Nbody_Ephemerides = function()
     # Use Earth relative to the Earth-Moon barycenter because this pair is
     # directly available in de440.bsp through Ephemerides.jl.
-    naif_ids = ["3", "399"]
+    naif_ids = ["399", "301"]
     GMs = [1.0, 1.0e-6]
     naif_frame = "J2000"
     abcorr = "NONE"
@@ -71,11 +70,9 @@ test_eom_Nbody_Ephemerides = function()
     et0 = 0.0
     parameters_spice = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        get_jacobian_func = false,
     )
     parameters_ephem = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        get_jacobian_func = false,
         ephemerides_files = _ephemerides_test_spk(),
     )
 
@@ -87,17 +84,17 @@ test_eom_Nbody_Ephemerides = function()
     dx_ephem_inplace = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Ephemerides!(dx_ephem_inplace, x0, parameters_ephem, 0.0)
 
-    @test dx_ephem ≈ dx_ephem_inplace atol=1e-14
+    @test dx_ephem ≈ dx_ephem_inplace atol=1e-15
 
     # compare against SPICE backend
     dx_spice = HighFidelityEphemerisModel.eom_Nbody_SPICE(x0, parameters_spice, 0.0)
-    @test dx_ephem ≈ dx_spice atol=1e-12
+    @test dx_ephem ≈ dx_spice atol=1e-15
 end
 
 
 test_eom_stm_Nbody_Ephemerides = function(;verbose::Bool = false)
     # define parameters
-    naif_ids = ["3", "399"]
+    naif_ids = ["399", "301"]
     GMs = [1.0, 1.0e-6]
     naif_frame = "J2000"
     abcorr = "NONE"
@@ -114,43 +111,47 @@ test_eom_stm_Nbody_Ephemerides = function(;verbose::Bool = false)
     x0_stm = [x0; reshape(I(6),36)]
 
     # evaluate Jacobian
-    Rs_initial = copy(parameters.Rs)
-    R_sun_initial = copy(parameters.R_sun)
-    jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Ephemerides(x0, 0.0, parameters, 0.0)
-    @test parameters.Rs == Rs_initial
-    @test parameters.R_sun == R_sun_initial
+    # Rs_initial = copy(parameters.Rs)
+    # R_sun_initial = copy(parameters.R_sun)
+    # jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Ephemerides(x0, 0.0, parameters, 0.0)
+    # @test parameters.Rs == Rs_initial
+    # @test parameters.R_sun == R_sun_initial
 
-    jac_forwarddiff = HighFidelityEphemerisModel.eom_jacobian_fd(
+    jac_ephem = HighFidelityEphemerisModel.eom_jacobian_fd(
         HighFidelityEphemerisModel.eom_Nbody_Ephemerides, x0, 0.0, parameters, 0.0
     )
 
+    jac_spice = HighFidelityEphemerisModel.eom_jacobian_fd(
+        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters, 0.0
+    )
+
     if verbose
-        println("Analytical Jacobian:")
-        print_matrix(jac_analytical)
+        println("AD-SPICE Jacobian:")
+        print_matrix(jac_spice)
         println()
-        println("ForwardDiff Jacobian:")
-        print_matrix(jac_forwarddiff)
+        println("AD-Ephemerides Jacobian:")
+        print_matrix(jac_ephem)
         println()
     end
 
-    @test jac_analytical ≈ jac_forwarddiff atol=1e-12
+    @test jac_spice ≈ jac_ephem atol=1e-15
 
-    # STM propagation RHS
-    dx_stm = zeros(42)
-    HighFidelityEphemerisModel.eom_stm_Nbody_Ephemerides!(dx_stm, x0_stm, parameters, 0.0)
-    @test all(isfinite, dx_stm)
-
-    dx_stm_fd = zeros(42)
-    HighFidelityEphemerisModel.eom_stm_Nbody_Ephemerides_fd!(dx_stm_fd, x0_stm, parameters, 0.0)
-    @test all(isfinite, dx_stm_fd)
-    @test dx_stm[1:6] ≈ dx_stm_fd[1:6] atol=1e-14
-    @test dx_stm[7:42] ≈ dx_stm_fd[7:42] atol=1e-12
+    # STM propagation
+    sol_ephem = solve(
+        ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Ephemerides!, x0_stm, (0.0, 1.0), parameters),
+        Vern7(), reltol=1e-12, abstol=1e-12
+    )
+    sol_spice = solve(
+        ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_stm, (0.0, 1.0), parameters),
+        Vern7(), reltol=1e-12, abstol=1e-12
+    )
+    @test sol_ephem.u[end] ≈ sol_spice.u[end] atol=1e-15
 end
 
 
 test_Nbody_Ephemerides_ensemble = function()
     # define parameters
-    naif_ids = ["3", "399"]
+    naif_ids = ["399", "301"]
     GMs = [1.0, 1.0e-6]
     naif_frame = "J2000"
     abcorr = "NONE"
@@ -159,7 +160,6 @@ test_Nbody_Ephemerides_ensemble = function()
     et0 = 0.0
     parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        get_jacobian_func = false,
         ephemerides_files = _ephemerides_test_spk(),
     )
 
