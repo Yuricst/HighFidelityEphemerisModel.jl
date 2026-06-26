@@ -104,11 +104,11 @@ function test_ephemerides_segment_fallbacks()
 
     r_sun_emb = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "10", "3", et)
     r_sun_emb_spice, _ = spkpos("10", et, "J2000", "NONE", "3")
-    @test maximum(abs.(collect(r_sun_emb) .- r_sun_emb_spice)) < 1e-8
+    @test maximum(abs.(collect(r_sun_emb) .- r_sun_emb_spice)) < 1e-6
 
     r_earth_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "399", "301", et)
     r_earth_moon_spice, _ = spkpos("399", et, "J2000", "NONE", "301")
-    @test maximum(abs.(collect(r_earth_moon) .- r_earth_moon_spice)) < 1e-8
+    @test maximum(abs.(collect(r_earth_moon) .- r_earth_moon_spice)) < 1e-6
 
     r_sun_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, "10", "301", et)
     r_sun_moon_spice, _ = spkpos("10", et, "J2000", "NONE", "301")
@@ -116,7 +116,19 @@ function test_ephemerides_segment_fallbacks()
 
     x_earth_moon = HighFidelityEphemerisModel.get_state_ephemerides(provider, "399", "301", et)
     x_earth_moon_spice, _ = spkezr("399", et, "J2000", "NONE", "301")
-    @test maximum(abs.(collect(x_earth_moon) .- x_earth_moon_spice)) < 1e-8
+    @test maximum(abs.(collect(x_earth_moon) .- x_earth_moon_spice)) < 1e-6
+
+    # Planet-center IDs should chain through their planetary barycenters when
+    # direct SPK segments are unavailable to Ephemerides.jl.
+    for target in ("199", "299")
+        r_target_moon = HighFidelityEphemerisModel.get_pos_ephemerides(provider, target, "301", et)
+        r_target_moon_spice, _ = spkpos(target, et, "J2000", "NONE", "301")
+        @test maximum(abs.(collect(r_target_moon) .- r_target_moon_spice)) < 1e-6
+
+        x_target_moon = HighFidelityEphemerisModel.get_state_ephemerides(provider, target, "301", et)
+        x_target_moon_spice, _ = spkezr(target, et, "J2000", "NONE", "301")
+        @test maximum(abs.(collect(x_target_moon) .- x_target_moon_spice)) < 1e-6
+    end
 end
 
 

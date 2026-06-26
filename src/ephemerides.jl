@@ -1,11 +1,99 @@
 """
-    _ephem_vector3_with_fallback(provider, from, to, et)
+    _ephemerides_parent_point(point)
 
-Query an Ephemerides.jl position vector with small SPK segment-chain fallbacks.
+Return the SPK tree parent used by common DE planetary ephemerides.
 
-Ephemerides.jl queries only directly available point pairs. SPICE can concatenate
-SPK segments automatically. These fallbacks cover common DE440 chains through the
-solar-system barycenter (NAIF 0) and Earth-Moon barycenter (NAIF 3).
+SPICE automatically chains SPK segments. Ephemerides.jl only exposes queried
+segments, so planet-center IDs such as `199` may need to be formed from their
+planetary barycenter plus the center offset:
+
+    0 -> 1 -> 199
+
+The Earth and Moon are similarly chained through the Earth-Moon barycenter:
+
+    0 -> 3 -> 399
+    0 -> 3 -> 301
+"""
+function _ephemerides_parent_point(point::Int)
+    if point == 301 || point == 399
+        return 3
+    elseif point in (199, 299, 499, 599, 699, 799, 899, 999)
+        return div(point, 100)
+    else
+        return nothing
+    end
+end
+
+
+"""
+    _ephem_vector3_wrt_ssb(provider, point, et)
+
+Return the position of `point` with respect to the solar-system barycenter.
+
+This first tries a direct `0 -> point` query. If unavailable, it attempts the
+common DE-style segment chain through the point's parent barycenter.
+"""
+function _ephem_vector3_wrt_ssb(provider, point::Int, et::Number)
+    point == 0 && return zeros(3)
+
+    direct_error = nothing
+
+    try
+        return Ephemerides.ephem_vector3(provider, 0, point, et)
+    catch error
+        direct_error = error
+    end
+
+    parent = _ephemerides_parent_point(point)
+    isnothing(parent) && throw(direct_error)
+
+    parent_ssb = _ephem_vector3_wrt_ssb(provider, parent, et)
+
+    try
+        point_parent = Ephemerides.ephem_vector3(provider, parent, point, et)
+        return parent_ssb + point_parent
+    catch
+        throw(direct_error)
+    end
+end
+
+
+"""
+    _ephem_vector6_wrt_ssb(provider, point, et)
+
+Return the state of `point` with respect to the solar-system barycenter.
+
+This mirrors `_ephem_vector3_wrt_ssb` for position and velocity.
+"""
+function _ephem_vector6_wrt_ssb(provider, point::Int, et::Number)
+    point == 0 && return zeros(6)
+
+    direct_error = nothing
+
+    try
+        return Ephemerides.ephem_vector6(provider, 0, point, et)
+    catch error
+        direct_error = error
+    end
+
+    parent = _ephemerides_parent_point(point)
+    isnothing(parent) && throw(direct_error)
+
+    parent_ssb = _ephem_vector6_wrt_ssb(provider, parent, et)
+
+    try
+        point_parent = Ephemerides.ephem_vector6(provider, parent, point, et)
+        return parent_ssb + point_parent
+    catch
+        throw(direct_error)
+    end
+end
+
+
+"""
+    _ephem_vector3_wrt_bridge(provider, point, bridge, et)
+
+Return the position of `point` with respect to `bridge`.
 """
 function _ephem_vector3_wrt_bridge(provider, point::Int, bridge::Int, et::Number)
     point == bridge && return zeros(3)
@@ -13,13 +101,23 @@ function _ephem_vector3_wrt_bridge(provider, point::Int, bridge::Int, et::Number
     try
         return Ephemerides.ephem_vector3(provider, bridge, point, et)
     catch
-        point_ssb = Ephemerides.ephem_vector3(provider, 0, point, et)
-        bridge_ssb = Ephemerides.ephem_vector3(provider, 0, bridge, et)
+        point_ssb = _ephem_vector3_wrt_ssb(provider, point, et)
+        bridge_ssb = _ephem_vector3_wrt_ssb(provider, bridge, et)
         return point_ssb - bridge_ssb
     end
 end
 
 
+"""
+    _ephem_vector3_with_fallback(provider, from, to, et)
+
+Query an Ephemerides.jl position vector with SPK segment-chain fallbacks.
+
+Ephemerides.jl queries only directly available point pairs. SPICE can concatenate
+SPK segments automatically. These fallbacks cover common DE440 chains through the
+solar-system barycenter, Earth-Moon barycenter, and planet barycenters for
+planet-center IDs such as `199` and `299`.
+"""
 function _ephem_vector3_with_fallback(provider, from::Int, to::Int, et::Number)
     from == to && return zeros(3)
 
@@ -32,8 +130,8 @@ function _ephem_vector3_with_fallback(provider, from::Int, to::Int, et::Number)
     end
 
     try
-        from_ssb = Ephemerides.ephem_vector3(provider, 0, from, et)
-        to_ssb = Ephemerides.ephem_vector3(provider, 0, to, et)
+        from_ssb = _ephem_vector3_wrt_ssb(provider, from, et)
+        to_ssb = _ephem_vector3_wrt_ssb(provider, to, et)
         return to_ssb - from_ssb
     catch
     end
@@ -50,9 +148,9 @@ end
 
 
 """
-    _ephem_vector6_with_fallback(provider, from, to, et)
+    _ephem_vector6_wrt_bridge(provider, point, bridge, et)
 
-Query an Ephemerides.jl state vector with small SPK segment-chain fallbacks.
+Return the state of `point` with respect to `bridge`.
 """
 function _ephem_vector6_wrt_bridge(provider, point::Int, bridge::Int, et::Number)
     point == bridge && return zeros(6)
@@ -60,13 +158,18 @@ function _ephem_vector6_wrt_bridge(provider, point::Int, bridge::Int, et::Number
     try
         return Ephemerides.ephem_vector6(provider, bridge, point, et)
     catch
-        point_ssb = Ephemerides.ephem_vector6(provider, 0, point, et)
-        bridge_ssb = Ephemerides.ephem_vector6(provider, 0, bridge, et)
+        point_ssb = _ephem_vector6_wrt_ssb(provider, point, et)
+        bridge_ssb = _ephem_vector6_wrt_ssb(provider, bridge, et)
         return point_ssb - bridge_ssb
     end
 end
 
 
+"""
+    _ephem_vector6_with_fallback(provider, from, to, et)
+
+Query an Ephemerides.jl state vector with SPK segment-chain fallbacks.
+"""
 function _ephem_vector6_with_fallback(provider, from::Int, to::Int, et::Number)
     from == to && return zeros(6)
 
@@ -79,8 +182,8 @@ function _ephem_vector6_with_fallback(provider, from::Int, to::Int, et::Number)
     end
 
     try
-        from_ssb = Ephemerides.ephem_vector6(provider, 0, from, et)
-        to_ssb = Ephemerides.ephem_vector6(provider, 0, to, et)
+        from_ssb = _ephem_vector6_wrt_ssb(provider, from, et)
+        to_ssb = _ephem_vector6_wrt_ssb(provider, to, et)
         return to_ssb - from_ssb
     catch
     end
@@ -222,3 +325,4 @@ function pxform_ephemerides(params, frame_from::String, frame_to::String, et::Nu
 
     return Matrix(rotation[1])
 end
+
