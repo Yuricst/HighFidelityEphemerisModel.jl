@@ -14,7 +14,7 @@ The Earth and Moon are similarly chained through the Earth-Moon barycenter:
     0 -> 3 -> 399
     0 -> 3 -> 301
 """
-function _ephemerides_parent_point(point::Int)
+@inline function _ephemerides_parent_point(point::Int)
     if point == 301 || point == 399
         return 3
     elseif point in (199, 299, 499, 599, 699, 799, 899, 999)
@@ -25,36 +25,38 @@ function _ephemerides_parent_point(point::Int)
 end
 
 
+@inline _ephemerides_direct_ssb_point(point::Int) = point == 10 || 1 <= point <= 9
+
+
+@inline function _ephemerides_common_ssb_chain_point(point::Int)
+    return point == 0 || _ephemerides_direct_ssb_point(point) || !isnothing(_ephemerides_parent_point(point))
+end
+
+
 """
     _ephem_vector3_wrt_ssb(provider, point, et)
 
 Return the position of `point` with respect to the solar-system barycenter.
 
-This first tries a direct `0 -> point` query. If unavailable, it attempts the
-common DE-style segment chain through the point's parent barycenter.
+Common DE ephemeris chains are evaluated deterministically to avoid throwing and
+catching exceptions inside dynamics hot loops. Generic points fall back to a
+direct `0 -> point` query and then to the parent-barycenter chain when possible.
 """
 function _ephem_vector3_wrt_ssb(provider, point::Int, et::Number)
     point == 0 && return zeros(3)
 
-    direct_error = nothing
-
-    try
+    if _ephemerides_direct_ssb_point(point)
         return Ephemerides.ephem_vector3(provider, 0, point, et)
-    catch error
-        direct_error = error
     end
 
     parent = _ephemerides_parent_point(point)
-    isnothing(parent) && throw(direct_error)
-
-    parent_ssb = _ephem_vector3_wrt_ssb(provider, parent, et)
-
-    try
+    if !isnothing(parent)
+        parent_ssb = _ephem_vector3_wrt_ssb(provider, parent, et)
         point_parent = Ephemerides.ephem_vector3(provider, parent, point, et)
         return parent_ssb + point_parent
-    catch
-        throw(direct_error)
     end
+
+    return Ephemerides.ephem_vector3(provider, 0, point, et)
 end
 
 
@@ -62,31 +64,22 @@ end
     _ephem_vector6_wrt_ssb(provider, point, et)
 
 Return the state of `point` with respect to the solar-system barycenter.
-
-This mirrors `_ephem_vector3_wrt_ssb` for position and velocity.
 """
 function _ephem_vector6_wrt_ssb(provider, point::Int, et::Number)
     point == 0 && return zeros(6)
 
-    direct_error = nothing
-
-    try
+    if _ephemerides_direct_ssb_point(point)
         return Ephemerides.ephem_vector6(provider, 0, point, et)
-    catch error
-        direct_error = error
     end
 
     parent = _ephemerides_parent_point(point)
-    isnothing(parent) && throw(direct_error)
-
-    parent_ssb = _ephem_vector6_wrt_ssb(provider, parent, et)
-
-    try
+    if !isnothing(parent)
+        parent_ssb = _ephem_vector6_wrt_ssb(provider, parent, et)
         point_parent = Ephemerides.ephem_vector6(provider, parent, point, et)
         return parent_ssb + point_parent
-    catch
-        throw(direct_error)
     end
+
+    return Ephemerides.ephem_vector6(provider, 0, point, et)
 end
 
 
@@ -113,13 +106,26 @@ end
 
 Query an Ephemerides.jl position vector with SPK segment-chain fallbacks.
 
-Ephemerides.jl queries only directly available point pairs. SPICE can concatenate
-SPK segments automatically. These fallbacks cover common DE440 chains through the
-solar-system barycenter, Earth-Moon barycenter, and planet barycenters for
-planet-center IDs such as `199` and `299`.
+For common DE ephemerides, known SSB/planet-barycenter chains are evaluated
+before trying direct arbitrary segment queries. This avoids exception-driven
+fallbacks in the EOM hot path while preserving the generic fallback behavior for
+less common SPK segment topologies.
 """
 function _ephem_vector3_with_fallback(provider, from::Int, to::Int, et::Number)
     from == to && return zeros(3)
+
+    if _ephemerides_common_ssb_chain_point(from) && _ephemerides_common_ssb_chain_point(to)
+        try
+            from_ssb = _ephem_vector3_wrt_ssb(provider, from, et)
+            to_ssb = _ephem_vector3_wrt_ssb(provider, to, et)
+            return to_ssb - from_ssb
+        catch
+            # Fall through to the generic direct/bridge logic below. This keeps
+            # useful errors for IDs whose NAIF code exists but whose SPK segment
+            # is not available in the loaded kernel set, such as 499 with DE440
+            # alone.
+        end
+    end
 
     direct_error = nothing
 
@@ -173,6 +179,16 @@ Query an Ephemerides.jl state vector with SPK segment-chain fallbacks.
 function _ephem_vector6_with_fallback(provider, from::Int, to::Int, et::Number)
     from == to && return zeros(6)
 
+    if _ephemerides_common_ssb_chain_point(from) && _ephemerides_common_ssb_chain_point(to)
+        try
+            from_ssb = _ephem_vector6_wrt_ssb(provider, from, et)
+            to_ssb = _ephem_vector6_wrt_ssb(provider, to, et)
+            return to_ssb - from_ssb
+        catch
+            # Fall through to the generic direct/bridge logic below.
+        end
+    end
+
     direct_error = nothing
 
     try
@@ -217,15 +233,17 @@ Ephemerides.jl uses integer NAIF IDs and the convention
 
 where `from` is the center and `to` is the target.
 """
-function get_pos_ephemerides(provider, target_id::String, center_id::String, et::Number)
+function get_pos_ephemerides(provider, target_id::Integer, center_id::Integer, et::Number)
     isnothing(provider) && error(
         "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to HighFidelityEphemerisModelParameters."
     )
 
-    from = parse(Int, center_id)
-    to = parse(Int, target_id)
+    return _ephem_vector3_with_fallback(provider, Int(center_id), Int(target_id), et)
+end
 
-    return _ephem_vector3_with_fallback(provider, from, to, et)
+
+function get_pos_ephemerides(provider, target_id::String, center_id::String, et::Number)
+    return get_pos_ephemerides(provider, parse(Int, target_id), parse(Int, center_id), et)
 end
 
 
@@ -234,15 +252,17 @@ end
 
 Query a target body's state relative to a center body using Ephemerides.jl.
 """
-function get_state_ephemerides(provider, target_id::String, center_id::String, et::Number)
+function get_state_ephemerides(provider, target_id::Integer, center_id::Integer, et::Number)
     isnothing(provider) && error(
         "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to HighFidelityEphemerisModelParameters."
     )
 
-    from = parse(Int, center_id)
-    to = parse(Int, target_id)
+    return _ephem_vector6_with_fallback(provider, Int(center_id), Int(target_id), et)
+end
 
-    return _ephem_vector6_with_fallback(provider, from, to, et)
+
+function get_state_ephemerides(provider, target_id::String, center_id::String, et::Number)
+    return get_state_ephemerides(provider, parse(Int, target_id), parse(Int, center_id), et)
 end
 
 
@@ -325,4 +345,3 @@ function pxform_ephemerides(params, frame_from::String, frame_to::String, et::Nu
 
     return Matrix(rotation[1])
 end
-

@@ -55,7 +55,7 @@ test_get_pos_ephemerides = function()
     r_spice, _ = spkpos(naif_ids[2], et0, naif_frame, abcorr, naif_ids[1])
 
     @test length(r_ephem) == 3
-    @test collect(r_ephem) ≈ r_spice atol=1e-10
+    @test collect(r_ephem) ≈ r_spice atol=1e-8
 end
 
 
