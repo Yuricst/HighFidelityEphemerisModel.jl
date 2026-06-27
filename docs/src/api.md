@@ -37,7 +37,7 @@ Pages   = [
 ]
 ```
 
-## Jacobian and Hessian routines
+## Utility routines
 
 ```@autodocs
 Modules = [HighFidelityEphemerisModel]
@@ -60,12 +60,6 @@ Pages   = [
     "perturbations/harrispriester.jl",
     "perturbations/jacchiaroberts.jl",
 ]
-```
-
-### Harris-Priester reference data
-
-```@docs
-HighFidelityEphemerisModel._HARRIS_PRIESTER_DATA
 ```
 
 ## Events
