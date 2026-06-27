@@ -17,6 +17,8 @@ mutable struct HighFidelityEphemerisModelParameters
     frame_PCPF::Union{Nothing,String}
     factorial_alias::Function
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
+    ephemerides_provider
+    ephemerides_frame_system
 
     include_srp::Bool
     k_srp_cannonball::Float64
@@ -26,13 +28,6 @@ mutable struct HighFidelityEphemerisModelParameters
     k_drag::Float64
     omega_atm::Vector{Float64}
     f_density::Union{Nothing,Function}
-
-    f_jacobian::Union{Nothing,Function}
-    Rs::Vector{Float64}
-    R_sun::Vector{Float64}
-
-    adtype
-    jacobian_cache
 
     u::Vector
 end
@@ -70,9 +65,11 @@ Construct HighFidelityEphemerisModelParameters struct.
 - `filepath_spherical_harmonics::Union{Nothing,String}`: path to spherical harmonics data file
 - `nmax::Int`: maximum degree of spherical harmonics to be included
 - `frame_PCPF::Union{Nothing,String}`: NAIF frame of planet-centered planet-fixed frame
-- `get_jacobian_func::Bool`: whether to construct symbolic Jacobian function (only for `Nbody` dynamics)
 - `interpolate_ephem_span::Union{Nothing,Vector{Float64}}`: span of epochs to interpolate ephemerides
 - `interpolation_time_step::Real`: time step for interpolation
+- `ephemerides_provider`: existing `Ephemerides.EphemerisProvider`
+- `ephemerides_files::Union{Nothing,String,Vector{String}}`: SPK/PCK file path(s) used to construct an `Ephemerides.EphemerisProvider`
+- `ephemerides_frame_system`: existing `FrameTransformations.FrameSystem` used for Ephemerides-backed frame transforms
 - `include_srp::Bool`: whether to include SRP terms
 - `srp_Cr::Float64`: SRP radiation pressure coefficient
 - `srp_Am::Float64`: SRP area-to-mass ratio in m^2/kg
@@ -97,9 +94,11 @@ function HighFidelityEphemerisModelParameters(
     filepath_spherical_harmonics::Union{Nothing,String} = nothing,
     nmax::Int = 4,
     frame_PCPF::Union{Nothing,String} = nothing,
-    get_jacobian_func::Bool = true,
     interpolate_ephem_span::Union{Nothing,Vector{Float64}} = nothing,
     interpolation_time_step::Real = 3600.0,
+    ephemerides_provider = nothing,
+    ephemerides_files::Union{Nothing,String,Vector{String}} = nothing,
+    ephemerides_frame_system = nothing,
     include_srp::Bool = false,
     srp_Cr::Float64 = 1.15,
     srp_Am::Float64 = 0.002,
@@ -121,18 +120,6 @@ function HighFidelityEphemerisModelParameters(
         DU, TU, VU = 1.0, 1.0, 1.0  # overwrite canonical scales to 1
         mus = GMs                   # unscaled GM's
     end
-
-    # Jacobian function
-    if get_jacobian_func
-        if include_srp
-            f_jacobian = symbolic_NbodySRP_jacobian(length(GMs))
-        else
-            f_jacobian = symbolic_Nbody_jacobian(length(GMs))
-        end
-    else
-        f_jacobian = nothing
-    end
-    Rs = zeros(3 * (length(mus)-1))  # storage for third-body positions
 
     # initialize interpolated structs
     interpolated_ephems = nothing
@@ -158,6 +145,19 @@ function HighFidelityEphemerisModelParameters(
                 TU,
             )
         end
+    end
+
+    # initialize Ephemerides.jl provider
+    if !isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
+        error("Provide either `ephemerides_provider` or `ephemerides_files`, not both.")
+    end
+
+    if isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
+        ephemerides_provider = Ephemerides.EphemerisProvider(ephemerides_files)
+    end
+
+    if isnothing(ephemerides_frame_system) && !isnothing(ephemerides_provider)
+        ephemerides_frame_system = build_ephemerides_frame_system(ephemerides_provider, frame_PCPF)
     end
 
     # Spherical-harmonic acceleration evaluates Legendre terms up to degree nmax + 1,
@@ -204,6 +204,8 @@ function HighFidelityEphemerisModelParameters(
         frame_PCPF,
         factorial_alias,
         interpolated_transformation,
+        ephemerides_provider,
+        ephemerides_frame_system,
         include_srp,
         k_srp_cannonball,
         idx_sun,
@@ -211,9 +213,6 @@ function HighFidelityEphemerisModelParameters(
         k_drag,
         omega_atm,
         f_density,
-        f_jacobian, Rs, zeros(3),
-        nothing,        # adtype, defaults to nothing
-        nothing,        # jacobian_cache, defaults to nothing
         zeros(nu),
     )
 end
