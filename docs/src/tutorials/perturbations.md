@@ -46,7 +46,7 @@ x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]
 
 ## Third-body perturbations
 
-Third-body accelerations are included automatically for every body listed in `naif_ids` after the central body. Ephemerides are queried from SPICE (`_SPICE` EOMs) or from pre-interpolated tables (`_Interp` EOMs).
+Third-body accelerations are included automatically for every body listed in `naif_ids` after the central body. Ephemerides are queried from SPICE (`_SPICE` EOMs), from pre-interpolated tables (`_Interp` EOMs), or from Ephemerides.jl providers (`_Ephemerides` EOMs).
 
 ```julia
 naif_ids = ["301", "399", "10"]   # Moon, Earth, Sun (301 = central body)
@@ -96,6 +96,35 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 !!! warning
 
     Spherical harmonics require `eom_NbodySH_*` functions. The `Nbody` variants do not evaluate harmonic terms.
+
+
+## Ephemerides.jl backend
+
+The `_Ephemerides` equations of motion use Julia-native ephemeris queries instead of direct SPICE ephemeris calls at runtime. Pass either an existing `ephemerides_provider` or a list of ephemeris files through `ephemerides_files`. For spherical harmonics, also provide the binary PCK needed by the body-fixed frame transformation.
+
+```julia
+paths = [
+    joinpath(spice_dir, "spk", "de440.bsp"),
+    joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc"),
+]
+
+parameters = HighFidelityEphemerisModelParameters(
+    et0, DU, GMs, naif_ids, naif_frame, abcorr;
+    filepath_spherical_harmonics = filepath_spherical_harmonics,
+    nmax = nmax,
+    frame_PCPF = "MOON_PA",
+    include_srp = true,
+    ephemerides_files = paths,
+)
+
+tspan = (0.0, 6 * 3600 / parameters.TU)
+prob = ODEProblem(eom_NbodySH_Ephemerides!, x0, tspan, parameters)
+sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
+```
+
+!!! note
+
+    The Ephemerides.jl backend supports third-body gravity, spherical harmonics, SRP, and drag. Frame transforms such as `"J2000"` to `"MOON_PA"` are handled through `FrameTransformations.jl`. For common DE440 body pairs, the helper routines also try segment-chain fallbacks through the solar-system barycenter and Earth-Moon barycenter when a direct pair is unavailable.
 
 
 ## Solar radiation pressure
@@ -209,10 +238,10 @@ sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 
 ## Choosing an equation of motion
 
-| Model | Perturbations included | SPICE at runtime | `EnsembleThreads` / AD-friendly |
-|-------|------------------------|------------------|----------------------------------|
-| `Nbody` | third-body, optional SRP & drag | `_SPICE` yes | `_Interp` yes |
-| `NbodySH` | above + spherical harmonics | `_SPICE` yes | `_Interp` yes |
+| Model | Perturbations included | SPICE at runtime | `EnsembleThreads` / AD-friendly | Ephemerides.jl backend |
+|-------|------------------------|------------------|----------------------------------|-----------------------|
+| `Nbody` | third-body, optional SRP & drag | `_SPICE` yes | `_Interp` yes | `_Ephemerides` yes |
+| `NbodySH` | above + spherical harmonics | `_SPICE` yes | `_Interp` yes | `_Ephemerides` yes |
 
 See the full function list and STM options in the [Overview](@ref "Overview" overview.md).
 

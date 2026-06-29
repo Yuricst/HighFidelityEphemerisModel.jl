@@ -24,12 +24,14 @@ end
     include("test_drag_jacchiaroberts.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
+    include("test_Nbody_Ephemerides.jl")
     include("test_Nbody_ensemble.jl")
 end
 
 @testset "Spherical harmonics    " begin
     include("test_spherical_harmonics.jl")
     include("test_NbodySH_SPICE.jl")
+    include("test_NbodySH_Ephemerides.jl")
     include("test_NbodySH_Interp.jl")
     include("test_NbodySH_ensemble.jl")
 end
