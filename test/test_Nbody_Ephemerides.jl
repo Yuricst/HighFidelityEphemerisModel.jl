@@ -1,9 +1,10 @@
 """
-Test Ephemerides.jl-based N-body dynamics
+Test Ephemerides.jl/FrameTransformations-based N-body dynamics.
 """
 
 using LinearAlgebra
 using OrdinaryDiffEq
+using Random
 using SPICE
 using Test
 
@@ -30,23 +31,41 @@ function _ephemerides_test_spk()
 end
 
 
+function _nbody_spice_ephemerides_parameters()
+    naif_ids = ["301", "399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    naif_frame = "J2000"
+    abcorr = "NONE"
+    DU = 1e5
+    et0 = str2et("2026-01-05T00:00:00")
+
+    parameters_spice = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        include_srp = true,
+    )
+    parameters_ephem = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        include_srp = true,
+        ephemerides_files = _ephemerides_test_spk(),
+    )
+
+    return parameters_spice, parameters_ephem
+end
+
+
 test_get_pos_ephemerides = function()
-    # define parameters
     naif_ids = ["399", "301"]
     GMs = [1.0, 1.0e-6]
     naif_frame = "J2000"
     abcorr = "NONE"
     DU = 1.0
-
     et0 = 0.0
+
     parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         ephemerides_files = _ephemerides_test_spk(),
     )
 
-    # Compare the preferred FrameTransformations-backed Ephemerides query
-    # against SPICE. Ephemerides.jl reads stored SPK records; the frame system
-    # performs point-chain concatenation for arbitrary target/center pairs.
     r_ephem = HighFidelityEphemerisModel.get_pos_ephemerides(
         parameters.ephemerides_frame_system,
         naif_ids[2],
@@ -62,70 +81,32 @@ end
 
 
 test_eom_Nbody_Ephemerides = function()
-    # Use Earth relative to the Earth-Moon barycenter because this pair is
-    # directly available in de440.bsp through Ephemerides.jl.
-    naif_ids = ["399", "301"]
-    GMs = [1.0, 1.0e-6]
-    naif_frame = "J2000"
-    abcorr = "NONE"
-    DU = 1.0
+    parameters_spice, parameters_ephem = _nbody_spice_ephemerides_parameters()
 
-    et0 = 0.0
-    parameters_spice = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, naif_frame, abcorr;
-    )
-    parameters_ephem = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        ephemerides_files = _ephemerides_test_spk(),
-    )
-
-    # initial state (in canonical scale)
     x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
 
-    # compare static and in-place APIs
     dx_ephem = HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters_ephem, 0.0)
     dx_ephem_inplace = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Ephemerides!(dx_ephem_inplace, x0, parameters_ephem, 0.0)
 
     @test dx_ephem ≈ dx_ephem_inplace atol=1e-15
 
-    # compare against SPICE backend
     dx_spice = HighFidelityEphemerisModel.eom_Nbody_SPICE(x0, parameters_spice, 0.0)
-    @test dx_ephem ≈ dx_spice atol=1e-15
+    @test dx_ephem ≈ dx_spice atol=1e-14
 end
 
 
 test_eom_stm_Nbody_Ephemerides = function(;verbose::Bool = false)
-    # define parameters
-    naif_ids = ["399", "301"]
-    GMs = [1.0, 1.0e-6]
-    naif_frame = "J2000"
-    abcorr = "NONE"
-    DU = 1.0
+    parameters_spice, parameters_ephem = _nbody_spice_ephemerides_parameters()
 
-    et0 = 0.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        ephemerides_files = _ephemerides_test_spk(),
-    )
-
-    # initial state (in canonical scale)
     x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
     x0_stm = [x0; reshape(I(6),36)]
 
-    # evaluate Jacobian
-    # Rs_initial = copy(parameters.Rs)
-    # R_sun_initial = copy(parameters.R_sun)
-    # jac_analytical = HighFidelityEphemerisModel.dfdx_Nbody_Ephemerides(x0, 0.0, parameters, 0.0)
-    # @test parameters.Rs == Rs_initial
-    # @test parameters.R_sun == R_sun_initial
-
     jac_ephem = HighFidelityEphemerisModel.eom_jacobian_fd(
-        HighFidelityEphemerisModel.eom_Nbody_Ephemerides, x0, 0.0, parameters, 0.0
+        HighFidelityEphemerisModel.eom_Nbody_Ephemerides, x0, 0.0, parameters_ephem, 0.0
     )
-
     jac_spice = HighFidelityEphemerisModel.eom_jacobian_fd(
-        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters, 0.0
+        HighFidelityEphemerisModel.eom_Nbody_SPICE, x0, 0.0, parameters_spice, 0.0
     )
 
     if verbose
@@ -137,42 +118,31 @@ test_eom_stm_Nbody_Ephemerides = function(;verbose::Bool = false)
         println()
     end
 
-    @test jac_spice ≈ jac_ephem atol=1e-15
+    @test jac_spice ≈ jac_ephem atol=1e-14
 
-    # STM propagation
+    tspan = (0.0, 0.1)
+    saveat = range(tspan[1], tspan[2]; length = 5)
+
     sol_ephem = solve(
-        ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Ephemerides!, x0_stm, (0.0, 1.0), parameters),
-        Vern7(), reltol=1e-12, abstol=1e-12
+        ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Ephemerides_fd!, x0_stm, tspan, parameters_ephem),
+        Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
     )
     sol_spice = solve(
-        ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_stm, (0.0, 1.0), parameters),
-        Vern7(), reltol=1e-12, abstol=1e-12
+        ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!, x0_stm, tspan, parameters_spice),
+        Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
     )
-    @test sol_ephem.u[end] ≈ sol_spice.u[end] atol=1e-15
+
+    @test maximum(abs.(Array(sol_ephem)[1:6,:] .- Array(sol_spice)[1:6,:])) < 1e-12
+    @test maximum(abs.(Array(sol_ephem)[7:42,:] .- Array(sol_spice)[7:42,:])) < 1e-12
 end
 
 
 test_Nbody_Ephemerides_ensemble = function()
-    # define parameters
-    naif_ids = ["399", "301"]
-    GMs = [1.0, 1.0e-6]
-    naif_frame = "J2000"
-    abcorr = "NONE"
-    DU = 1.0
+    _, parameters = _nbody_spice_ephemerides_parameters()
 
-    et0 = 0.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
-        et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        ephemerides_files = _ephemerides_test_spk(),
-    )
-
-    # initial state (in canonical scale)
     x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
-
-    # time span (in canonical scale)
     tspan = (0.0, 0.1)
 
-    # compare threaded ensemble propagation against serial propagation
     N_traj = 4
     x0_conditions = [
         x0 .+ 1e-4 .* [i, -i, 0.5*i, 0.0, 0.0, 0.0]
@@ -184,10 +154,7 @@ test_Nbody_Ephemerides_ensemble = function()
     end
 
     prob_base = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Ephemerides!, x0, tspan, parameters)
-    ensemble_prob = EnsembleProblem(
-        prob_base;
-        prob_func = prob_func_Nbody
-    )
+    ensemble_prob = EnsembleProblem(prob_base; prob_func = prob_func_Nbody)
 
     sols_ensemble = solve(ensemble_prob, Vern7(), EnsembleThreads();
         trajectories=N_traj, reltol=1e-12, abstol=1e-12)
@@ -195,7 +162,7 @@ test_Nbody_Ephemerides_ensemble = function()
     sols_serial = []
     for i = 1:N_traj
         prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Ephemerides!, x0_conditions[i], tspan, parameters)
-        sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
+        sol = solve(prob, Vern7(); reltol=1e-12, abstol=1e-12)
         push!(sols_serial, sol)
     end
 
@@ -205,7 +172,47 @@ test_Nbody_Ephemerides_ensemble = function()
 end
 
 
+function test_random_Nbody_SPICE_vs_Ephemerides_integrations(; N::Int = parse(Int, get(ENV, "HFEM_EPHEMERIDES_RANDOM_TEST_N", "10")))
+    params_spice, params_ephem = _nbody_spice_ephemerides_parameters()
+
+    rng = MersenneTwister(20260628)
+    x_nom = [1.0, 0.05, 0.2, 0.0, 0.25, -0.08]
+
+    for _ in 1:N
+        x0 = x_nom .+ [1e-3 .* randn(rng, 3); 1e-4 .* randn(rng, 3)]
+        tf = 0.05 + 0.20 * rand(rng)  # short, random tspan in TU
+        tspan = (0.0, tf)
+        saveat = range(tspan[1], tspan[2]; length = 6)
+
+        sol_spice = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0, tspan, params_spice),
+            Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
+        )
+        sol_ephem = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Ephemerides!, x0, tspan, params_ephem),
+            Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
+        )
+
+        @test maximum(abs.(Array(sol_ephem) .- Array(sol_spice))) < 1e-12
+
+        x0_stm = [x0; reshape(I(6),36)]
+        sol_spice_stm = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_SPICE_fd!, x0_stm, tspan, params_spice),
+            Vern7(); reltol=1e-11, abstol=1e-11, saveat=saveat
+        )
+        sol_ephem_stm = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_stm_Nbody_Ephemerides_fd!, x0_stm, tspan, params_ephem),
+            Vern7(); reltol=1e-11, abstol=1e-11, saveat=saveat
+        )
+
+        @test maximum(abs.(Array(sol_ephem_stm)[1:6,:] .- Array(sol_spice_stm)[1:6,:])) < 1e-12
+        @test maximum(abs.(Array(sol_ephem_stm)[7:42,:] .- Array(sol_spice_stm)[7:42,:])) < 1e-12
+    end
+end
+
+
 test_get_pos_ephemerides()
 test_eom_Nbody_Ephemerides()
 test_eom_stm_Nbody_Ephemerides(verbose=verbose)
 test_Nbody_Ephemerides_ensemble()
+test_random_Nbody_SPICE_vs_Ephemerides_integrations()

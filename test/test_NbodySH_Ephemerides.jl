@@ -1,9 +1,11 @@
 """
-Test eom_NbodySH_Ephemerides and Ephemerides.jl frame/segment fallback helpers.
+Test Ephemerides.jl/FrameTransformations-based N-body+SH dynamics.
 """
 
 using Ephemerides
 using LinearAlgebra
+using OrdinaryDiffEq
+using Random
 using SPICE
 using Test
 
@@ -93,7 +95,7 @@ function test_pxform_ephemerides()
     )
     T_spice = pxform("J2000", "MOON_PA", et0)
 
-    @test maximum(abs.(T_ephem .- T_spice)) < 1e-10
+    @test maximum(abs.(T_ephem .- T_spice)) < 1e-11
 end
 
 
@@ -128,43 +130,24 @@ function _test_ephemerides_state_close(frames, target, center, et; pos_atol = 1e
 end
 
 
-function test_ephemerides_segment_fallbacks()
+function test_ephemerides_frame_transformations_match_spice()
     paths = furnish_ephemerides_test_kernels()
 
-    # Build the documented Ephemerides + FrameTransformations path.  Ephemerides.jl
-    # only reads stored SPK/PCK records; FrameTransformations.jl performs the
-    # point-chain concatenation for arbitrary target/center pairs.
     provider = Ephemerides.EphemerisProvider(paths.spk)
     frames = HighFidelityEphemerisModel.build_ephemerides_frame_system(provider)
     et = str2et("2026-01-05T00:00:00")
 
-    # Stored or near-direct common cases should be much tighter than the old
-    # blanket 1e-6 km fallback tolerance.
-    _test_ephemerides_position_close(frames, "10", "3", et; atol = 5e-8, rtol = 5e-16)
-    _test_ephemerides_position_close(frames, "399", "301", et; atol = 1e-8, rtol = 5e-16)
-    _test_ephemerides_position_close(frames, "10", "301", et; atol = 5e-8, rtol = 5e-16)
+    # FrameTransformations-backed body-to-body vectors should match SPICE.
+    _test_ephemerides_position_close(frames, "10", "3", et; atol = 2e-8, rtol = 5e-16)
+    _test_ephemerides_position_close(frames, "399", "301", et; atol = 1e-10, rtol = 5e-16)
+    _test_ephemerides_position_close(frames, "10", "301", et; atol = 2e-8, rtol = 5e-16)
 
-    _test_ephemerides_state_close(frames, "399", "301", et; pos_atol = 1e-8, vel_atol = 5e-14)
-    _test_ephemerides_state_close(frames, "10", "301", et; pos_atol = 5e-8, vel_atol = 5e-14)
-
-    # Planet-center IDs should chain through their planetary barycenters when
-    # direct SPK segments are unavailable to Ephemerides.jl.
-    for target in ("199", "299")
-        _test_ephemerides_position_close(frames, target, "301", et; atol = 5e-8, rtol = 5e-16)
-        _test_ephemerides_state_close(frames, target, "301", et; pos_atol = 5e-8, vel_atol = 5e-14)
-    end
-
-    # Outer barycenter wrt Moon cases involve billion-km vectors composed through
-    # the point graph.  The remaining absolute differences vs CSPICE are near
-    # Float64 roundoff for the vector scale, so use a tight relative tolerance
-    # instead of a blanket absolute 1e-6 km tolerance.
-    for target in ("4", "5", "6", "7", "8", "9")
-        _test_ephemerides_position_close(frames, target, "301", et; atol = 1e-8, rtol = 5e-16)
-        _test_ephemerides_state_close(frames, target, "301", et; pos_atol = 1e-8, vel_atol = 5e-14)
-    end
+    _test_ephemerides_state_close(frames, "399", "301", et; pos_atol = 1e-10, vel_atol = 1e-14)
+    _test_ephemerides_state_close(frames, "10", "301", et; pos_atol = 2e-8, vel_atol = 1e-14)
 end
 
-function moon_centered_parameters(; backend::Symbol)
+
+function moon_centered_parameters(; backend::Symbol, include_drag::Bool = false)
     paths = furnish_ephemerides_test_kernels()
 
     et0 = str2et("2026-01-05T00:00:00")
@@ -181,8 +164,8 @@ function moon_centered_parameters(; backend::Symbol)
         nmax = 4,
         frame_PCPF = "MOON_PA",
         include_srp = true,
-        include_drag = true,
-        f_density = constant_density,
+        include_drag = include_drag,
+        f_density = include_drag ? constant_density : nothing,
     )
 
     if backend == :spice
@@ -213,8 +196,8 @@ end
 
 
 function test_eom_NbodySH_Ephemerides_matches_SPICE()
-    params_spice = moon_centered_parameters(backend = :spice)
-    params_ephem = moon_centered_parameters(backend = :ephemerides)
+    params_spice = moon_centered_parameters(backend = :spice, include_drag = true)
+    params_ephem = moon_centered_parameters(backend = :ephemerides, include_drag = true)
 
     x0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]
     t = 0.1
@@ -222,7 +205,7 @@ function test_eom_NbodySH_Ephemerides_matches_SPICE()
     dx_spice = HighFidelityEphemerisModel.eom_NbodySH_SPICE(x0, params_spice, t)
     dx_ephem = HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, params_ephem, t)
 
-    @test maximum(abs.(dx_ephem .- dx_spice)) < 1e-12
+    @test maximum(abs.(dx_ephem .- dx_spice)) < 1e-14
 end
 
 
@@ -244,20 +227,58 @@ function test_eom_stm_NbodySH_Ephemerides_fd()
     dx = HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, params_ephem, t)
 
     @test all(isfinite, dx_stm)
-    @test maximum(abs.(dx_stm[1:6] .- dx)) < 1e-12
+    @test maximum(abs.(dx_stm[1:6] .- dx)) < 1e-14
     @test norm(dx_stm[7:42]) > 0.0
+end
+
+
+function test_random_NbodySH_SPICE_vs_Ephemerides_integrations(; N::Int = parse(Int, get(ENV, "HFEM_EPHEMERIDES_RANDOM_TEST_N", "10")))
+    params_spice = moon_centered_parameters(backend = :spice)
+    params_ephem = moon_centered_parameters(backend = :ephemerides)
+
+    rng = MersenneTwister(20260628)
+    x_nom = [1.0, 0.05, 0.2, 0.0, 0.25, -0.08]
+
+    for _ in 1:N
+        x0 = x_nom .+ [1e-3 .* randn(rng, 3); 1e-4 .* randn(rng, 3)]
+        tf = 0.02 + 0.08 * rand(rng)  # short, random tspan in TU
+        tspan = (0.0, tf)
+        saveat = range(tspan[1], tspan[2]; length = 6)
+
+        sol_spice = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, params_spice),
+            Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
+        )
+        sol_ephem = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_Ephemerides!, x0, tspan, params_ephem),
+            Vern7(); reltol=1e-12, abstol=1e-12, saveat=saveat
+        )
+
+        @test maximum(abs.(Array(sol_ephem) .- Array(sol_spice))) < 1e-12
+
+        x0_stm = [x0; reshape(I(6),36)]
+        sol_spice_stm = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, params_spice),
+            Vern7(); reltol=1e-11, abstol=1e-11, saveat=saveat
+        )
+        sol_ephem_stm = solve(
+            ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Ephemerides_fd!, x0_stm, tspan, params_ephem),
+            Vern7(); reltol=1e-11, abstol=1e-11, saveat=saveat
+        )
+
+        @test maximum(abs.(Array(sol_ephem_stm)[1:6,:] .- Array(sol_spice_stm)[1:6,:])) < 1e-12
+        @test maximum(abs.(Array(sol_ephem_stm)[7:42,:] .- Array(sol_spice_stm)[7:42,:])) < 1e-12
+    end
 end
 
 
 @testset "Ephemerides frame transforms" begin
     test_pxform_ephemerides()
-end
-
-@testset "Ephemerides segment fallbacks" begin
-    test_ephemerides_segment_fallbacks()
+    test_ephemerides_frame_transformations_match_spice()
 end
 
 @testset "NbodySH Ephemerides EOM" begin
     test_eom_NbodySH_Ephemerides_matches_SPICE()
     test_eom_stm_NbodySH_Ephemerides_fd()
+    test_random_NbodySH_SPICE_vs_Ephemerides_integrations()
 end

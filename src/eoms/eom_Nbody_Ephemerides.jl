@@ -1,45 +1,27 @@
-"""Ephemerides.jl-based N-body equations of motion"""
-
-
-function _get_pos_3body_ephemerides(params, ID::String, t)
-    et = params.et0 + t * params.TU
-
-    # Prefer the FrameTransformations graph because Ephemerides.jl only reads
-    # stored SPK records; FrameTransformations.jl performs the documented
-    # point-chain concatenation for arbitrary target/center pairs.
-    if !isnothing(params.ephemerides_frame_system)
-        return collect(
-            get_pos_ephemerides(
-                params.ephemerides_frame_system,
-                ID,
-                params.naif_ids[1],
-                et;
-                axes = params.naif_frame,
-            )
-        ) / params.DU
-    end
-
-    # Backward-compatible provider-only fallback.
-    return collect(
-        get_pos_ephemerides(
-            params.ephemerides_provider,
-            ID,
-            params.naif_ids[1],
-            et,
-        )
-    ) / params.DU
-end
+"""Ephemerides.jl/FrameTransformations-based N-body equations of motion"""
 
 
 """
     eom_Nbody_Ephemerides!(dx, x, params, t)
 
-Right-hand side of N-body equations of motion compatible with `DifferentialEquations.jl`
+Right-hand side of N-body equations of motion compatible with `DifferentialEquations.jl`.
+
+Third-body positions are queried directly through `FrameTransformations.vector3`
+using the Ephemerides-backed frame system in `params.ephemerides_frame_system`.
+HFEM does not manually reconstruct missing ephemeris chains; missing kernel/frame
+information should surface as backend errors.
 """
 function eom_Nbody_Ephemerides!(dx, x, params, t)
     if params.include_drag
         error("eom_Nbody_Ephemerides! does not currently support drag.")
     end
+    isnothing(params.ephemerides_frame_system) && error(
+        "eom_Nbody_Ephemerides! requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
+    )
+
+    et = params.et0 + t * params.TU
+    center_id = ephemerides_point_id(params.naif_ids[1])
+    axes = ephemerides_axes_symbol(params.naif_frame)
 
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
@@ -48,7 +30,15 @@ function eom_Nbody_Ephemerides!(dx, x, params, t)
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
         else
-            pos_3body = _get_pos_3body_ephemerides(params, ID, t)
+            pos_3body = collect(
+                FrameTransformations.vector3(
+                    params.ephemerides_frame_system,
+                    center_id,
+                    ephemerides_point_id(ID),
+                    axes,
+                    et,
+                )
+            ) / params.DU
         end
 
         if i >= 2
@@ -67,12 +57,19 @@ end
 """
     eom_Nbody_Ephemerides(x, params, t)
 
-Right-hand side of N-body equations of motion compatible with `DifferentialEquations.jl`
+Right-hand side of N-body equations of motion compatible with `DifferentialEquations.jl`.
 """
 function eom_Nbody_Ephemerides(x, params, t)
     if params.include_drag
         error("eom_Nbody_Ephemerides does not currently support drag.")
     end
+    isnothing(params.ephemerides_frame_system) && error(
+        "eom_Nbody_Ephemerides requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
+    )
+
+    et = params.et0 + t * params.TU
+    center_id = ephemerides_point_id(params.naif_ids[1])
+    axes = ephemerides_axes_symbol(params.naif_frame)
 
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
@@ -80,7 +77,15 @@ function eom_Nbody_Ephemerides(x, params, t)
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
         else
-            pos_3body = _get_pos_3body_ephemerides(params, ID, t)
+            pos_3body = collect(
+                FrameTransformations.vector3(
+                    params.ephemerides_frame_system,
+                    center_id,
+                    ephemerides_point_id(ID),
+                    axes,
+                    et,
+                )
+            ) / params.DU
         end
 
         if i >= 2
@@ -97,9 +102,119 @@ end
 
 
 """
+    eom_stm_Nbody_Ephemerides!(dx_stm, x_stm, params, t)
+
+Right-hand side of N-body equations of motion with STM compatible with `DifferentialEquations.jl`.
+"""
+function eom_stm_Nbody_Ephemerides!(dx_stm, x_stm, params, t)
+    if params.include_drag
+        error("eom_stm_Nbody_Ephemerides! does not currently support drag.")
+    end
+    isnothing(params.ephemerides_frame_system) && error(
+        "eom_stm_Nbody_Ephemerides! requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
+    )
+
+    et = params.et0 + t * params.TU
+    center_id = ephemerides_point_id(params.naif_ids[1])
+    axes = ephemerides_axes_symbol(params.naif_frame)
+
+    dx_stm[1:3] = x_stm[4:6]
+    dx_stm[4:6] = -params.mus[1] / norm(x_stm[1:3])^3 * x_stm[1:3]
+    Rs = similar(params.Rs)
+    R_sun = zeros(eltype(params.R_sun), length(params.R_sun))
+
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
+        else
+            pos_3body = collect(
+                FrameTransformations.vector3(
+                    params.ephemerides_frame_system,
+                    center_id,
+                    ephemerides_point_id(ID),
+                    axes,
+                    et,
+                )
+            ) / params.DU
+        end
+
+        if i >= 2
+            Rs[1+3(i-2):3(i-1)] = pos_3body
+            dx_stm[4:6] += third_body_accel(x_stm[1:3], pos_3body, mu_i)
+        end
+
+        if ID == "10" && params.include_srp
+            R_sun .= pos_3body
+            dx_stm[4:6] += srp_cannonball(x_stm[1:3], pos_3body, params.k_srp_cannonball)
+        end
+    end
+
+    if params.include_srp
+        A = params.f_jacobian(x_stm[1:6], params.mus, Rs, params.k_srp_cannonball, R_sun)
+    else
+        A = params.f_jacobian(x_stm[1:6], params.mus, Rs)
+    end
+    dx_stm[7:42] = reshape((A * reshape(x_stm[7:42],6,6)), 36)
+    return nothing
+end
+
+
+"""
+    dfdx_Nbody_Ephemerides(x, u, params, t)
+
+Evaluate Jacobian of N-body problem.
+"""
+function dfdx_Nbody_Ephemerides(x, u, params, t)
+    if params.include_drag
+        error("dfdx_Nbody_Ephemerides does not currently support drag.")
+    end
+    isnothing(params.ephemerides_frame_system) && error(
+        "dfdx_Nbody_Ephemerides requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
+    )
+
+    et = params.et0 + t * params.TU
+    center_id = ephemerides_point_id(params.naif_ids[1])
+    axes = ephemerides_axes_symbol(params.naif_frame)
+
+    Rs = similar(params.Rs)
+    R_sun = zeros(eltype(params.R_sun), length(params.R_sun))
+
+    for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
+        if i == 1
+            pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
+        else
+            pos_3body = collect(
+                FrameTransformations.vector3(
+                    params.ephemerides_frame_system,
+                    center_id,
+                    ephemerides_point_id(ID),
+                    axes,
+                    et,
+                )
+            ) / params.DU
+        end
+
+        if i >= 2
+            Rs[1+3(i-2):3(i-1)] = pos_3body
+        end
+
+        if ID == "10" && params.include_srp
+            R_sun .= pos_3body
+        end
+    end
+
+    if params.include_srp
+        return params.f_jacobian(x[1:6], params.mus, Rs, params.k_srp_cannonball, R_sun)
+    else
+        return params.f_jacobian(x[1:6], params.mus, Rs)
+    end
+end
+
+
+"""
     eom_stm_Nbody_Ephemerides_fd!(dx_stm, x_stm, params, t)
 
-Right-hand side of N-body equations of motion with STM compatible with `DifferentialEquations.jl`
+Right-hand side of N-body equations of motion with STM compatible with `DifferentialEquations.jl`.
 """
 function eom_stm_Nbody_Ephemerides_fd!(dx_stm, x_stm, params, t)
     dx_stm[1:6] = eom_Nbody_Ephemerides(x_stm[1:6], params, t)
