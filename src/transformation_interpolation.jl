@@ -61,7 +61,6 @@ struct InterpolatedTransformation
     )
         @assert 1 <= spline_order <= 5
         if rescale_epoch
-            @warn "rescale_epoch == true is buggy"
             times_input = (ets .- ets[1]) / TU
         else
             times_input = ets
@@ -103,8 +102,8 @@ end
 """
 function get_euler_angles(transformation::InterpolatedTransformation, et::Float64)
     if transformation.rescale_epoch
-        et_eval = et * transformation.TU + transformation.et_range[1]
         @assert transformation.et_range[1] <= et <= transformation.et_range[2]
+        et_eval = (et - transformation.et_range[1]) / transformation.TU
     else
         et_eval = et
         @assert transformation.et_range[1] <= et <= transformation.et_range[2]
