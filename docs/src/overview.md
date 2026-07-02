@@ -185,14 +185,14 @@ The table below summarizes the equations of motion. Note:
 
 - `Nbody`: central gravity term + third-body perturbations ($\boldsymbol{a}_{\mathrm{3bd},i}$), optional SRP and drag
 - `NbodySH`: central gravity term + third-body perturbations + spherical harmonics perturbations up to `nmax` degree ($\boldsymbol{a}_{\mathrm{SH},n_{\max}}$), optional SRP and drag
-- The STM is integrated with the Jacobian, which is computed either analytically (using symbolic derivative) or via `ForwardDiff` (functions containing `_fd`)
+- The STM is integrated with the Jacobian, which is computed via `ForwardDiff` (functions containing `_fd`)
 
-| eom                   | eom + STM (analytical)  | eom + STM (ForwardDiff)      | `EnsembleThreads` compatibility |
-|-----------------------|-------------------------|------------------------------|---------------------------------|
-| `eom_Nbody_SPICE!`    | `eom_stm_Nbody_SPICE!`  | `eom_stm_Nbody_SPICE_fd!`    | no                              |
-| `eom_Nbody_Interp!`   | `eom_stm_Nbody_Interp!` | `eom_stm_Nbody_Interp_fd!`   | yes                             |
-| `eom_NbodySH_SPICE!`  |                         | `eom_stm_NbodySH_SPICE_fd!`  | no                              |
-| `eom_NbodySH_Interp!` |                         | `eom_stm_NbodySH_Interp_fd!` | yes                             |
+| eom                   | eom + STM (ForwardDiff)      | `EnsembleThreads` compatibility |
+|-----------------------|------------------------------|---------------------------------|
+| `eom_Nbody_SPICE!`    | `eom_stm_Nbody_SPICE_fd!`    | no                              |
+| `eom_Nbody_Interp!`   | `eom_stm_Nbody_Interp_fd!`   | yes                             |
+| `eom_NbodySH_SPICE!`  | `eom_stm_NbodySH_SPICE_fd!`  | no                              |
+| `eom_NbodySH_Interp!` | `eom_stm_NbodySH_Interp_fd!` | yes                             |
 
 
 !!! note

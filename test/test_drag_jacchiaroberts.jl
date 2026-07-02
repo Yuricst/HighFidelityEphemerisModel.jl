@@ -8,7 +8,7 @@ if !@isdefined(HighFidelityEphemerisModel)
 end
 
 
-function _drag_stm_parameters(et0)
+function _drag_stm_parameters_jacchia_roberts(et0)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
@@ -75,7 +75,7 @@ end
 
 function test_jacchia_roberts_eom()
     et0 = str2et("2020-01-01T00:00:00")
-    parameters = _drag_stm_parameters(et0)
+    parameters = _drag_stm_parameters_jacchia_roberts(et0)
     u0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     tspan = (0.0, 3600.0 / parameters.TU)
     prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
@@ -105,7 +105,7 @@ end
 
 function test_jacchia_roberts_eom_stm(; verbose=false)
     et0 = str2et("2020-01-01T00:00:00")
-    parameters = _drag_stm_parameters(et0)
+    parameters = _drag_stm_parameters_jacchia_roberts(et0)
     x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
     x0_stm = [x0; reshape(I(6), 36)]
 
