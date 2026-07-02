@@ -16,9 +16,9 @@ SPICE = "5bab7191-041a-5c2e-a744-024b9c3a5062"
 
 [compat]
 Dierckx = "0.5"
-ForwardDiff = "0.10"
+ForwardDiff = "0.1, 1"
 Interpolations = "0.16"
-OrdinaryDiffEq = "6.101.0"
+OrdinaryDiffEq = "6"
 SPICE = "0.2"
 julia = "1.10"
 
