@@ -99,7 +99,7 @@ function test_pxform_ephemerides()
 end
 
 
-function _test_ephemerides_position_close(frames, target, center, et; atol = 1e-8, rtol = 5e-16)
+function test_ephemerides_position_close(frames, target, center, et; atol = 1e-8, rtol = 5e-16)
     r_ephem = HighFidelityEphemerisModel.get_pos_ephemerides(
         frames,
         target,
@@ -113,7 +113,7 @@ function _test_ephemerides_position_close(frames, target, center, et; atol = 1e-
 end
 
 
-function _test_ephemerides_state_close(frames, target, center, et; pos_atol = 1e-8, vel_atol = 5e-14, rtol = 5e-16)
+function test_ephemerides_state_close(frames, target, center, et; pos_atol = 1e-8, vel_atol = 5e-14, rtol = 5e-16)
     x_ephem = collect(
         HighFidelityEphemerisModel.get_state_ephemerides(
             frames,
@@ -138,12 +138,12 @@ function test_ephemerides_frame_transformations_match_spice()
     et = str2et("2026-01-05T00:00:00")
 
     # FrameTransformations-backed body-to-body vectors should match SPICE.
-    _test_ephemerides_position_close(frames, "10", "3", et; atol = 2e-8, rtol = 5e-16)
-    _test_ephemerides_position_close(frames, "399", "301", et; atol = 1e-10, rtol = 5e-16)
-    _test_ephemerides_position_close(frames, "10", "301", et; atol = 2e-8, rtol = 5e-16)
+    test_ephemerides_position_close(frames, "10", "3", et; atol = 2e-8, rtol = 5e-16)
+    test_ephemerides_position_close(frames, "399", "301", et; atol = 1e-10, rtol = 5e-16)
+    test_ephemerides_position_close(frames, "10", "301", et; atol = 2e-8, rtol = 5e-16)
 
-    _test_ephemerides_state_close(frames, "399", "301", et; pos_atol = 1e-10, vel_atol = 1e-14)
-    _test_ephemerides_state_close(frames, "10", "301", et; pos_atol = 2e-8, vel_atol = 1e-14)
+    test_ephemerides_state_close(frames, "399", "301", et; pos_atol = 1e-10, vel_atol = 1e-14)
+    test_ephemerides_state_close(frames, "10", "301", et; pos_atol = 2e-8, vel_atol = 1e-14)
 end
 
 
