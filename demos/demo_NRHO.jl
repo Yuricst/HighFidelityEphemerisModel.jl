@@ -25,7 +25,7 @@ abcorr = "NONE"
 DU = 100_000.0
 
 et0 = str2et("2028-01-03T08:00:00")
-parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr)
+parameters = HighFidelityEphemerisModel.SpiceParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr)
 
 x0 = spkezr("-60000", et0, naif_frame, abcorr, "399")[1] - spkezr("301", et0, naif_frame, abcorr, "399")[1]
 x0[1:3] ./= DU
@@ -35,7 +35,7 @@ x0[4:6] ./= parameters.VU
 N_rev = 10
 period = 6.55 * 86400.0 / parameters.TU
 tspan = (0.0, N_rev * period)
-prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0, tspan, parameters)
+prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0, tspan, parameters)
 sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 
 # small perturbations
@@ -49,7 +49,7 @@ for i in 1:N_mc
     δr = δr_sigma * randn(3)
     δv = δv_sigma * randn(3)
     x0_ptrb = x0 + [δr; δv]
-    _prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_ptrb, tspan, parameters)
+    _prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0_ptrb, tspan, parameters)
     _sol = solve(_prob, Vern8(), reltol=1e-12, abstol=1e-12)
     push!(sols, _sol)
 end

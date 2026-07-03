@@ -19,7 +19,7 @@ We will now go over how to use the equations of motion to propagate some initial
 
 We first need to define the parameter struct to be parsed as argument to the equations of motion.
 
-Below is the most general example compatible with `eom_NbodySH_Interp!`/`eom_stm_NbodySH_Interp_fd!`:
+Below is a SPICE-backed example using the generic EOM names. The concrete parameter type selects the backend.
 
 ```julia
 using OrdinaryDiffEq
@@ -43,14 +43,8 @@ nmax = 4                               # using up to 4-by-4 spherical harmonics
 filepath_spherical_harmonics = "HighFidelityEphemerisModel.jl/data/luna/gggrx_1200l_sha_20x20.tab"
 
 et0 = str2et("2026-01-05T00:00:00")    # reference epoch
-etf = et0 + 30 * 86400.0
-interpolate_ephem_span = [et0, etf]    # range of epoch to interpolate ephemeris
-interpolation_time_step = 1000.0       # time-step to sample ephemeris for interpolation
-
-parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+parameters = HighFidelityEphemerisModel.SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
-    interpolate_ephem_span=interpolate_ephem_span,
-    interpolation_time_step = interpolation_time_step,
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
     frame_PCPF = "MOON_PA",
@@ -63,7 +57,9 @@ parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
 !!! note
 
     - NAIF body IDs are defined according to: [https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/req/naif_ids.html](https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/req/naif_ids.html)
-    - if using `_SPICE` equations of motion, you do not need to provide `interpolate_ephem_span` and `interpolation_time_step`
+    - use `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` to choose the backend
+    - use `eom_Nbody!`/`eom_Nbody` or `eom_NbodySH!`/`eom_NbodySH` for normal propagation
+    - `HighFidelityEphemerisModelParameters(...)` remains available only as a backward-compatible constructor
     - if using `Nbody` dynamics instead of `NbodySH`, you do not need to provide `filepath_spherical_harmonics`, `nmax`, and `frame_PCPF`
     - if excluding SRP terms, set `include_srp = false` (then, `srp_Cr` and `srp_Am` won't be used, so they can be removed too)
 
@@ -79,13 +75,9 @@ x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]
 # time span (in canonical scale)
 tspan = (0.0, 6 * 3600/parameters.TU)
 
-# solve with SPICE
-prob_spice = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
-sol_spice = solve(prob_spice, Vern8(), reltol=1e-14, abstol=1e-14)
-
-# ... or solve with interpolated ephemerides
-prob_interp = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_Interp!, x0, tspan, parameters)
-sol_interp = solve(prob_interp, Vern8(), reltol=1e-14, abstol=1e-14)
+# solve
+prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0, tspan, parameters)
+sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
 
 ## Propagate the STM
@@ -108,16 +100,12 @@ x0_stm = [x0; reshape(I(6),36)]  # initial augmented state, flattened
 # solve with SPICE
 prob_spice = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)
 sol_spice = solve(prob_spice, Vern8(), reltol=1e-14, abstol=1e-14)
-
-# ... or solve with interpolated ephemerides
-prob_interp = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!, x0_stm, tspan, parameters)
-sol_interp = solve(prob_interp, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
 
 Now, to extract the STM that maps from `tspan[1]` to `tspan[2]`, 
 
 ```julia
-x_aug_tf = sol_interp.u[end]            # final state + flattened STM
+x_aug_tf = sol_spice.u[end]             # final state + flattened STM
 x_tf   = x_aug_tf[1:6]                  # final state
 STM_tf = reshape(x_aug_tf[7:42],6,6)   # final STM
 ```

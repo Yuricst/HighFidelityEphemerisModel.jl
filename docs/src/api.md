@@ -24,6 +24,8 @@ Pages   = [
 
 ## Equations of motion
 
+The preferred translational EOM names are `eom_Nbody!`, `eom_Nbody`, `eom_NbodySH!`, and `eom_NbodySH`. The backend-specific files below are still part of the public API for compatibility and backend-specific tests.
+
 ```@autodocs
 Modules = [HighFidelityEphemerisModel]
 Order   = [:type, :constant, :function]
@@ -34,6 +36,7 @@ Pages   = [
     "eoms/eom_NbodySH_SPICE.jl",
     "eoms/eom_NbodySH_Interp.jl",
     "eoms/eom_NbodySH_Ephemerides.jl",
+    "eoms/eom_dispatch.jl",
 ]
 ```
 

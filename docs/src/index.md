@@ -7,7 +7,9 @@
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
-- ephemeris interpolation, to define equations of motion compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
+- SPICE, Ephemerides.jl, and legacy interpolated-ephemeris parameter backends
+
+The preferred propagation API uses `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` together with generic EOM names such as `eom_Nbody!` and `eom_NbodySH!`. `HighFidelityEphemerisModelParameters(...)` is retained only as a backward-compatible constructor. The `_Interp` backend is a legacy compatibility path; for new non-SPICE workflows, prefer `EphemeridesParameters`.
 
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) impemented (at least for now)

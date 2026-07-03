@@ -179,27 +179,40 @@ The pre-computed coefficient $k_{\mathrm{drag}}$ absorbs $\tfrac{1}{2} C_d (A/m)
 ```
 
 
-## List of equations of motion in `HighFidelityEphemerisModel.jl`
+## Parameters and equations of motion
 
-The table below summarizes the equations of motion. Note: 
+Backends are selected by the parameter type:
+
+- `SpiceParameters`: query SPICE at runtime
+- `EphemeridesParameters`: use Ephemerides.jl/FrameTransformations.jl at runtime
+- `InterpParameters`: use pre-interpolated ephemerides and transformations
+
+The preferred EOM names are generic and dispatch on the parameter type:
+
+- `eom_Nbody!` / `eom_Nbody`
+- `eom_NbodySH!` / `eom_NbodySH`
+
+The compatibility constructor `HighFidelityEphemerisModelParameters(...)` remains available only for backward compatibility and returns one of the concrete parameter types based on the supplied backend inputs.
+
+Backend-specific names (`eom_Nbody_SPICE!`, `eom_Nbody_Interp!`, `eom_Nbody_Ephemerides!`, `eom_NbodySH_SPICE!`, `eom_NbodySH_Interp!`, `eom_NbodySH_Ephemerides!`) remain available for compatibility and backend-specific tests.
+
+The table below summarizes the models. Note:
 
 - `Nbody`: central gravity term + third-body perturbations ($\boldsymbol{a}_{\mathrm{3bd},i}$), optional SRP and drag
 - `NbodySH`: central gravity term + third-body perturbations + spherical harmonics perturbations up to `nmax` degree ($\boldsymbol{a}_{\mathrm{SH},n_{\max}}$), optional SRP and drag
 - The STM is integrated with the Jacobian, which is computed via `ForwardDiff` (functions containing `_fd`)
 
-| eom                   | eom + STM (ForwardDiff)      | `EnsembleThreads` compatibility |
-|-----------------------|------------------------------|---------------------------------|
-| `eom_Nbody_SPICE!`    | `eom_stm_Nbody_SPICE_fd!`    | no                              |
-| `eom_Nbody_Interp!`   | `eom_stm_Nbody_Interp_fd!`   | yes                             |
-| `eom_NbodySH_SPICE!`  | `eom_stm_NbodySH_SPICE_fd!`  | no                              |
-| `eom_NbodySH_Interp!` | `eom_stm_NbodySH_Interp_fd!` | yes                             |
+| Parameters | Translational EOM | STM EOM | `EnsembleThreads` compatibility | Notes |
+|------------|-------------------|---------|---------------------------------|-------|
+| `SpiceParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_SPICE_fd!`, `eom_stm_NbodySH_SPICE_fd!` | no | direct SPICE calls |
+| `EphemeridesParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Ephemerides_fd!`, `eom_stm_NbodySH_Ephemerides_fd!` | yes | preferred non-SPICE backend |
+| `InterpParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Interp_fd!`, `eom_stm_NbodySH_Interp_fd!` | yes | legacy compatibility backend |
 
 
 !!! note
 
-    In order to use Julia's dual numbers, make sure to use a function that does not contain SPICE calls (i.e. use ones with `_interp` in the name); this is enabled by interpolating ahead of time ephemerides/transformation matrices.
+    In order to use Julia's dual numbers, use `EphemeridesParameters` or `InterpParameters`, which avoid direct SPICE calls inside the EOM.
 
 !!! warning
 
-    The accuracy of interpolated equations of motion (with `_interp` in the name) depends on the `interpolation_time_step`; if high-accuracy integration is required, it is advised to directly use the equations of motion that internally call SPICE (i.e. with `_SPICE` in the name)
-
+    The `_Interp` backend is retained as a legacy/temporary compatibility path. Its accuracy depends on `interpolation_time_step`; for new non-SPICE workflows, prefer `EphemeridesParameters`.

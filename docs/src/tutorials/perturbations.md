@@ -7,7 +7,7 @@
 - solar radiation pressure (SRP)
 - atmospheric drag
 
-Mathematical definitions appear in the [Overview](@ref "Overview" overview.md). This page shows how to enable each term in `HighFidelityEphemerisModelParameters` and propagate with `OrdinaryDiffEq.jl`.
+Mathematical definitions appear in the [Overview](@ref "Overview" overview.md). This page shows how to enable each term in `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` and propagate with `OrdinaryDiffEq.jl`.
 
 !!! tip
 
@@ -46,19 +46,19 @@ x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]
 
 ## Third-body perturbations
 
-Third-body accelerations are included automatically for every body listed in `naif_ids` after the central body. Ephemerides are queried from SPICE (`_SPICE` EOMs), from pre-interpolated tables (`_Interp` EOMs), or from Ephemerides.jl providers (`_Ephemerides` EOMs).
+Third-body accelerations are included automatically for every body listed in `naif_ids` after the central body. Ephemerides are queried from the backend selected by the parameter type.
 
 ```julia
 naif_ids = ["301", "399", "10"]   # Moon, Earth, Sun (301 = central body)
 GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
 DU = 1e5
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr,
 )
 
 tspan = (0.0, 6 * 3600 / parameters.TU)
-prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
+prob = ODEProblem(eom_Nbody!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
@@ -81,7 +81,7 @@ filepath_spherical_harmonics = joinpath(
     "data", "luna", "gggrx_1200l_sha_20x20.tab",
 )
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -89,18 +89,18 @@ parameters = HighFidelityEphemerisModelParameters(
 )
 
 tspan = (0.0, 6 * 3600 / parameters.TU)
-prob = ODEProblem(eom_NbodySH_SPICE!, x0, tspan, parameters)
+prob = ODEProblem(eom_NbodySH!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
 !!! warning
 
-    Spherical harmonics require `eom_NbodySH_*` functions. The `Nbody` variants do not evaluate harmonic terms.
+    Spherical harmonics require `eom_NbodySH!` or a backend-specific `eom_NbodySH_*` function. The `Nbody` variants do not evaluate harmonic terms.
 
 
 ## Ephemerides.jl backend
 
-The `_Ephemerides` equations of motion use Julia-native ephemeris queries instead of direct SPICE ephemeris calls at runtime. Pass either an existing `ephemerides_provider` or a list of ephemeris files through `ephemerides_files`. For spherical harmonics, also provide the binary PCK needed by the body-fixed frame transformation.
+`EphemeridesParameters` uses Julia-native ephemeris queries instead of direct SPICE ephemeris calls at runtime. Pass either an existing `ephemerides_provider` or a list of ephemeris files through `ephemerides_files`. For spherical harmonics, also provide the binary PCK needed by the body-fixed frame transformation.
 
 ```julia
 paths = [
@@ -108,7 +108,7 @@ paths = [
     joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc"),
 ]
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = EphemeridesParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -118,7 +118,7 @@ parameters = HighFidelityEphemerisModelParameters(
 )
 
 tspan = (0.0, 6 * 3600 / parameters.TU)
-prob = ODEProblem(eom_NbodySH_Ephemerides!, x0, tspan, parameters)
+prob = ODEProblem(eom_NbodySH!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
@@ -136,7 +136,7 @@ naif_ids = ["301", "399", "10"]
 GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
 DU = 1e5
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     include_srp = true,
     srp_Cr = 1.15,
@@ -145,7 +145,7 @@ parameters = HighFidelityEphemerisModelParameters(
 )
 
 tspan = (0.0, 6 * 3600 / parameters.TU)
-prob = ODEProblem(eom_Nbody_SPICE!, x0, tspan, parameters)
+prob = ODEProblem(eom_Nbody!, x0, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
@@ -160,7 +160,7 @@ Drag uses a quadratic law with density supplied by a callback `f_density(et, r_k
 
 When drag is enabled, the EOM transform the spacecraft position from `naif_frame` to `frame_PCPF` before calling `f_density`. Custom callbacks must therefore expect **`r_km` in `frame_PCPF` (km)**, not in the inertial frame. Set `frame_PCPF` (e.g. `"IAU_EARTH"` for Earth drag).
 
-A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km) - R_earth_km`; it is not the canonical distance unit `DU` (those may differ if you choose a different `DU` for scaling). The Jacchia–Roberts model is available via `jacchia_roberts_f_density` (constant F10.7 / F10.7a / Kp; SPICE geodetics). Drag is supported on all `eom_Nbody_*` and `eom_NbodySH_*` variants.
+A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km) - R_earth_km`; it is not the canonical distance unit `DU` (those may differ if you choose a different `DU` for scaling). The Jacchia–Roberts model is available via `jacchia_roberts_f_density` (constant F10.7 / F10.7a / Kp; SPICE geodetics). Drag is supported by `eom_Nbody!` and `eom_NbodySH!` for all parameter backends, including Ephemerides.jl.
 
 ```julia
 naif_ids = ["399", "10"]   # Earth-centered; Sun for optional third-body / SRP
@@ -170,7 +170,7 @@ R_earth_km = 6378.0        # Earth radius in km (for Harris–Priester altitude;
 
 f_density = harris_priester_f_density(R_earth_km; use_min=true)
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     frame_PCPF = "IAU_EARTH",
     include_drag = true,
@@ -181,7 +181,7 @@ parameters = HighFidelityEphemerisModelParameters(
 
 x0_earth = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
 tspan = (0.0, 2 * 86400 / parameters.TU)
-prob = ODEProblem(eom_Nbody_SPICE!, x0_earth, tspan, parameters)
+prob = ODEProblem(eom_Nbody!, x0_earth, tspan, parameters)
 sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 ```
 
@@ -194,7 +194,7 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 ## Combining perturbations
 
-Flags compose in a single `HighFidelityEphemerisModelParameters` instance. The example below uses interpolated ephemerides (compatible with `EnsembleThreads` and `ForwardDiff`) and enables spherical harmonics, SRP, and drag together.
+Flags compose in a single parameter object. The example below uses the legacy interpolated backend (compatible with `EnsembleThreads` and `ForwardDiff`) and enables spherical harmonics, SRP, and drag together. For new non-SPICE workflows, prefer `EphemeridesParameters` when the needed kernels are available through Ephemerides.jl.
 
 ```julia
 naif_ids = ["399", "301", "10"]     # Earth-centered inertial frame
@@ -210,7 +210,7 @@ etf = et0 + 7 * 86400.0
 interpolate_ephem_span = [et0, etf]
 interpolation_time_step = 1000.0
 
-parameters = HighFidelityEphemerisModelParameters(
+parameters = InterpParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     interpolate_ephem_span = interpolate_ephem_span,
     interpolation_time_step = interpolation_time_step,
@@ -227,7 +227,7 @@ parameters = HighFidelityEphemerisModelParameters(
 )
 
 tspan = (0.0, 6 * 3600 / parameters.TU)
-prob = ODEProblem(eom_NbodySH_Interp!, x0, tspan, parameters)
+prob = ODEProblem(eom_NbodySH!, x0, tspan, parameters)
 sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 ```
 
@@ -238,17 +238,18 @@ sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 
 ## Choosing an equation of motion
 
-| Model | Perturbations included | SPICE at runtime | `EnsembleThreads` / AD-friendly | Ephemerides.jl backend |
-|-------|------------------------|------------------|----------------------------------|-----------------------|
-| `Nbody` | third-body, optional SRP & drag | `_SPICE` yes | `_Interp` yes | `_Ephemerides` yes |
-| `NbodySH` | above + spherical harmonics | `_SPICE` yes | `_Interp` yes | `_Ephemerides` yes |
+| Model | Perturbations included | SPICE | Ephemerides.jl | Legacy interpolation |
+|-------|------------------------|-------|----------------|----------------------|
+| `Nbody` | third-body, optional SRP & drag | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
+| `NbodySH` | above + spherical harmonics | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
 
 See the full function list and STM options in the [Overview](@ref "Overview" overview.md).
 
 | Use case | Recommended EOM |
 |----------|-----------------|
-| High accuracy, few propagations | `eom_NbodySH_SPICE!` |
-| Many trajectories / sensitivities | `eom_NbodySH_Interp!` |
-| No harmonics needed | `eom_Nbody_SPICE!` or `eom_Nbody_Interp!` |
+| High accuracy, few propagations | `SpiceParameters` + `eom_NbodySH!` |
+| Julia-native ephemerides | `EphemeridesParameters` + `eom_NbodySH!` |
+| Legacy interpolation / sensitivities | `InterpParameters` + `eom_NbodySH!` |
+| No harmonics needed | `eom_Nbody!` |
 
 For IVP setup and STM propagation, see [Basics](@ref "Basics" tutorials/basics.md). For Jacobians and Hessians, see [Jacobians & Hessians](@ref "Jacobians & Hessians" tutorials/jacobians_hessians.md).
