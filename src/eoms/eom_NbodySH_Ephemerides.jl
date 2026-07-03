@@ -7,19 +7,10 @@
 Right-hand side of N-body equations of motion with spherical harmonics compatible
 with `DifferentialEquations.jl`.
 
-Third-body positions are queried through `FrameTransformations.vector3` and frame
-rotations are queried through `FrameTransformations.rotation3` using the
-Ephemerides-backed frame system in `params.ephemerides_frame_system`.
+Third-body positions and frame rotations are queried through the Ephemerides
+backend attached to `params`.
 """
-function eom_NbodySH_Ephemerides!(dx, x, params, t)
-    isnothing(params.ephemerides_frame_system) && error(
-        "eom_NbodySH_Ephemerides! requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
-    )
-
-    et = params.et0 + t * params.TU
-    center_id = ephemerides_point_id(params.naif_ids[1])
-    axes_inr = ephemerides_axes_symbol(params.naif_frame)
-
+function eom_NbodySH_Ephemerides!(dx, x, params::EphemeridesParameters, t)
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
 
@@ -27,15 +18,7 @@ function eom_NbodySH_Ephemerides!(dx, x, params, t)
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
         else
-            pos_3body = collect(
-                FrameTransformations.vector3(
-                    params.ephemerides_frame_system,
-                    center_id,
-                    ephemerides_point_id(ID),
-                    axes_inr,
-                    et,
-                )
-            ) / params.DU
+            pos_3body = _get_pos_3body_ephemerides(params, ID, t)
         end
 
         if i >= 2
@@ -47,19 +30,13 @@ function eom_NbodySH_Ephemerides!(dx, x, params, t)
         end
     end
 
+    et = params.et0 + t * params.TU
     T_inr2pcpf = nothing
     if params.include_drag || !isnothing(params.spherical_harmonics_data)
         isnothing(params.frame_PCPF) && error(
             "eom_NbodySH_Ephemerides! requires `params.frame_PCPF` when drag or spherical harmonics are enabled."
         )
-        T_inr2pcpf = Matrix(
-            FrameTransformations.rotation3(
-                params.ephemerides_frame_system,
-                axes_inr,
-                ephemerides_axes_symbol(params.frame_PCPF),
-                et,
-            )[1]
-        )
+        T_inr2pcpf = pxform_ephemerides(params, params.naif_frame, params.frame_PCPF, et)
     end
 
     if params.include_drag
@@ -93,30 +70,14 @@ end
 Right-hand side of N-body equations of motion with spherical harmonics compatible
 with `DifferentialEquations.jl`.
 """
-function eom_NbodySH_Ephemerides(x, params, t)
-    isnothing(params.ephemerides_frame_system) && error(
-        "eom_NbodySH_Ephemerides requires `params.ephemerides_frame_system`. Pass `ephemerides_files`, `ephemerides_provider`, or `ephemerides_frame_system` to HighFidelityEphemerisModelParameters."
-    )
-
-    et = params.et0 + t * params.TU
-    center_id = ephemerides_point_id(params.naif_ids[1])
-    axes_inr = ephemerides_axes_symbol(params.naif_frame)
-
+function eom_NbodySH_Ephemerides(x, params::EphemeridesParameters, t)
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
         if i == 1
             pos_3body = [0.0, 0.0, 0.0]   # needed in case Sun is central body (first body) & we need SRP
         else
-            pos_3body = collect(
-                FrameTransformations.vector3(
-                    params.ephemerides_frame_system,
-                    center_id,
-                    ephemerides_point_id(ID),
-                    axes_inr,
-                    et,
-                )
-            ) / params.DU
+            pos_3body = _get_pos_3body_ephemerides(params, ID, t)
         end
 
         if i >= 2
@@ -128,19 +89,13 @@ function eom_NbodySH_Ephemerides(x, params, t)
         end
     end
 
+    et = params.et0 + t * params.TU
     T_inr2pcpf = nothing
     if params.include_drag || !isnothing(params.spherical_harmonics_data)
         isnothing(params.frame_PCPF) && error(
             "eom_NbodySH_Ephemerides requires `params.frame_PCPF` when drag or spherical harmonics are enabled."
         )
-        T_inr2pcpf = Matrix(
-            FrameTransformations.rotation3(
-                params.ephemerides_frame_system,
-                axes_inr,
-                ephemerides_axes_symbol(params.frame_PCPF),
-                et,
-            )[1]
-        )
+        T_inr2pcpf = pxform_ephemerides(params, params.naif_frame, params.frame_PCPF, et)
     end
 
     if params.include_drag
@@ -169,22 +124,12 @@ end
 
 
 """
-    dfdx_NbodySH_Ephemerides_fd(x, u, params, t)
-
-Evaluate Jacobian of N-body problem with spherical harmonics using ForwardDiff.
-"""
-function dfdx_NbodySH_Ephemerides_fd(x, u, params, t)
-    return ForwardDiff.jacobian(x -> HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x, params, t), x)
-end
-
-
-"""
     eom_stm_NbodySH_Ephemerides_fd!(dx_stm, x_stm, params, t)
 
 Right-hand side of N-body equations of motion with spherical harmonics and STM
 compatible with `DifferentialEquations.jl`.
 """
-function eom_stm_NbodySH_Ephemerides_fd!(dx_stm, x_stm, params, t)
+function eom_stm_NbodySH_Ephemerides_fd!(dx_stm, x_stm, params::EphemeridesParameters, t)
     dx_stm[1:6] = eom_NbodySH_Ephemerides(x_stm[1:6], params, t)
     A = eom_jacobian_fd(eom_NbodySH_Ephemerides, x_stm[1:6], 0.0, params, t)
     A[1:3,4:6] .= I(3)   # force identity for linear map

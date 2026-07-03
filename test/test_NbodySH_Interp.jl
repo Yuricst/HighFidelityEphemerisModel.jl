@@ -12,7 +12,7 @@ if !@isdefined(HighFidelityEphemerisModel)
 end
 
 
-test_eom_NbodySH_SPICE = function()
+test_eom_NbodySH_Interp = function()
     # load gggrd_20x20.tab file
     nmax = 4
     denormalize = true
@@ -35,7 +35,7 @@ test_eom_NbodySH_SPICE = function()
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
     interpolation_time_step = 30.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
         filepath_spherical_harmonics = filepath_spherical_harmonics,
@@ -99,7 +99,7 @@ function test_eom_stm_NbodySH_Interp(;verbose=false)
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
     interpolation_time_step = 1000.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
         filepath_spherical_harmonics = filepath_spherical_harmonics,
@@ -198,5 +198,5 @@ function test_eom_stm_NbodySH_Interp(;verbose=false)
 end
 
 
-test_eom_NbodySH_SPICE()
+test_eom_NbodySH_Interp()
 test_eom_stm_NbodySH_Interp(;verbose = false)

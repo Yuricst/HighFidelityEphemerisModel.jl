@@ -1,4 +1,195 @@
 """
+    _ephemerides_parent_point(point)
+
+Return the SPK tree parent used by common DE planetary ephemerides.
+
+These provider-only helpers are retained for backward compatibility. The
+preferred path for arbitrary target/center queries in the dynamics is the
+`FrameTransformations.FrameSystem` method below.
+"""
+@inline function _ephemerides_parent_point(point::Int)
+    if point == 301 || point == 399
+        return 3
+    elseif point in (199, 299, 499, 599, 699, 799, 899, 999)
+        return div(point, 100)
+    else
+        return nothing
+    end
+end
+
+
+@inline _ephemerides_direct_ssb_point(point::Int) = point == 10 || 1 <= point <= 9
+
+
+@inline function _ephemerides_common_ssb_chain_point(point::Int)
+    return point == 0 || _ephemerides_direct_ssb_point(point) || !isnothing(_ephemerides_parent_point(point))
+end
+
+
+function _ephem_vector3_wrt_ssb(provider, point::Int, et::Number)
+    point == 0 && return zeros(3)
+
+    if _ephemerides_direct_ssb_point(point)
+        return Ephemerides.ephem_vector3(provider, 0, point, et)
+    end
+
+    parent = _ephemerides_parent_point(point)
+    if !isnothing(parent)
+        parent_ssb = _ephem_vector3_wrt_ssb(provider, parent, et)
+        point_parent = Ephemerides.ephem_vector3(provider, parent, point, et)
+        return parent_ssb + point_parent
+    end
+
+    return Ephemerides.ephem_vector3(provider, 0, point, et)
+end
+
+
+function _ephem_vector6_wrt_ssb(provider, point::Int, et::Number)
+    point == 0 && return zeros(6)
+
+    if _ephemerides_direct_ssb_point(point)
+        return Ephemerides.ephem_vector6(provider, 0, point, et)
+    end
+
+    parent = _ephemerides_parent_point(point)
+    if !isnothing(parent)
+        parent_ssb = _ephem_vector6_wrt_ssb(provider, parent, et)
+        point_parent = Ephemerides.ephem_vector6(provider, parent, point, et)
+        return parent_ssb + point_parent
+    end
+
+    return Ephemerides.ephem_vector6(provider, 0, point, et)
+end
+
+
+function _ephem_vector3_wrt_bridge(provider, point::Int, bridge::Int, et::Number)
+    point == bridge && return zeros(3)
+
+    try
+        return Ephemerides.ephem_vector3(provider, bridge, point, et)
+    catch
+        point_ssb = _ephem_vector3_wrt_ssb(provider, point, et)
+        bridge_ssb = _ephem_vector3_wrt_ssb(provider, bridge, et)
+        return point_ssb - bridge_ssb
+    end
+end
+
+
+function _ephem_vector6_wrt_bridge(provider, point::Int, bridge::Int, et::Number)
+    point == bridge && return zeros(6)
+
+    try
+        return Ephemerides.ephem_vector6(provider, bridge, point, et)
+    catch
+        point_ssb = _ephem_vector6_wrt_ssb(provider, point, et)
+        bridge_ssb = _ephem_vector6_wrt_ssb(provider, bridge, et)
+        return point_ssb - bridge_ssb
+    end
+end
+
+
+function _ephem_vector3_with_fallback(provider, from::Int, to::Int, et::Number)
+    from == to && return zeros(3)
+
+    if _ephemerides_common_ssb_chain_point(from) && _ephemerides_common_ssb_chain_point(to)
+        try
+            from_ssb = _ephem_vector3_wrt_ssb(provider, from, et)
+            to_ssb = _ephem_vector3_wrt_ssb(provider, to, et)
+            return to_ssb - from_ssb
+        catch
+        end
+    end
+
+    direct_error = nothing
+    try
+        return Ephemerides.ephem_vector3(provider, from, to, et)
+    catch error
+        direct_error = error
+    end
+
+    try
+        from_ssb = _ephem_vector3_wrt_ssb(provider, from, et)
+        to_ssb = _ephem_vector3_wrt_ssb(provider, to, et)
+        return to_ssb - from_ssb
+    catch
+    end
+
+    try
+        bridge = 3
+        from_bridge = _ephem_vector3_wrt_bridge(provider, from, bridge, et)
+        to_bridge = _ephem_vector3_wrt_bridge(provider, to, bridge, et)
+        return to_bridge - from_bridge
+    catch
+        throw(direct_error)
+    end
+end
+
+
+function _ephem_vector6_with_fallback(provider, from::Int, to::Int, et::Number)
+    from == to && return zeros(6)
+
+    if _ephemerides_common_ssb_chain_point(from) && _ephemerides_common_ssb_chain_point(to)
+        try
+            from_ssb = _ephem_vector6_wrt_ssb(provider, from, et)
+            to_ssb = _ephem_vector6_wrt_ssb(provider, to, et)
+            return to_ssb - from_ssb
+        catch
+        end
+    end
+
+    direct_error = nothing
+    try
+        return Ephemerides.ephem_vector6(provider, from, to, et)
+    catch error
+        direct_error = error
+    end
+
+    try
+        from_ssb = _ephem_vector6_wrt_ssb(provider, from, et)
+        to_ssb = _ephem_vector6_wrt_ssb(provider, to, et)
+        return to_ssb - from_ssb
+    catch
+    end
+
+    try
+        bridge = 3
+        from_bridge = _ephem_vector6_wrt_bridge(provider, from, bridge, et)
+        to_bridge = _ephem_vector6_wrt_bridge(provider, to, bridge, et)
+        return to_bridge - from_bridge
+    catch
+        throw(direct_error)
+    end
+end
+
+
+"""
+    EphemeridesBackend(provider, frame_system)
+
+Small container for Julia-native ephemeris state.
+"""
+struct EphemeridesBackend{P,F}
+    provider::P
+    frame_system::F
+end
+
+
+function EphemeridesBackend(provider; frame_PCPF::Union{Nothing,String}=nothing, frame_system=nothing)
+    isnothing(provider) && error(
+        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files`."
+    )
+
+    if isnothing(frame_system)
+        frame_system = build_ephemerides_frame_system(provider, frame_PCPF)
+    end
+
+    return EphemeridesBackend(provider, frame_system)
+end
+
+
+@inline ephemerides_backend(params) = params.ephemerides_backend
+
+
+"""
     ephemerides_axes_symbol(frame_name)
 
 Map common SPICE frame names to FrameTransformations axes symbols.
@@ -41,15 +232,10 @@ answer the query, the backend error is surfaced to the caller.
 """
 function get_pos_ephemerides(provider, target_id::Integer, center_id::Integer, et::Number)
     isnothing(provider) && error(
-        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to HighFidelityEphemerisModelParameters."
+        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to EphemeridesParameters."
     )
 
-    return Ephemerides.ephem_vector3(
-        provider,
-        ephemerides_point_id(center_id),
-        ephemerides_point_id(target_id),
-        et,
-    )
+    return _ephem_vector3_with_fallback(provider, Int(center_id), Int(target_id), et)
 end
 
 
@@ -69,15 +255,10 @@ manually reconstruct missing point chains.
 """
 function get_state_ephemerides(provider, target_id::Integer, center_id::Integer, et::Number)
     isnothing(provider) && error(
-        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to HighFidelityEphemerisModelParameters."
+        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to EphemeridesParameters."
     )
 
-    return Ephemerides.ephem_vector6(
-        provider,
-        ephemerides_point_id(center_id),
-        ephemerides_point_id(target_id),
-        et,
-    )
+    return _ephem_vector6_with_fallback(provider, Int(center_id), Int(target_id), et)
 end
 
 
@@ -166,7 +347,7 @@ query should error clearly.
 """
 function build_ephemerides_frame_system(provider, frame_PCPF::Union{Nothing,String}=nothing)
     isnothing(provider) && error(
-        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to HighFidelityEphemerisModelParameters."
+        "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files` to EphemeridesParameters."
     )
 
     frames = FrameTransformations.FrameSystem{2,Float64}()
@@ -288,12 +469,13 @@ Ephemerides.jl/FrameTransformations-backed replacement for
 for supported axes in `params.ephemerides_frame_system`.
 """
 function pxform_ephemerides(params, frame_from::String, frame_to::String, et::Number)
-    isnothing(params.ephemerides_frame_system) && error(
+    backend = ephemerides_backend(params)
+    isnothing(backend.frame_system) && error(
         "No Ephemerides.jl frame system was supplied. Pass `ephemerides_frame_system`, or pass `ephemerides_files`/`ephemerides_provider` together with a supported `frame_PCPF`."
     )
 
     rotation = FrameTransformations.rotation3(
-        params.ephemerides_frame_system,
+        backend.frame_system,
         ephemerides_axes_symbol(frame_from),
         ephemerides_axes_symbol(frame_to),
         et,

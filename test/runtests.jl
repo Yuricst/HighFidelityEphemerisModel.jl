@@ -22,6 +22,7 @@ end
     include("test_thirdbody.jl")
     include("test_drag_harrispriester.jl")
     include("test_drag_jacchiaroberts.jl")
+    include("test_eom_dispatch.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
     include("test_Nbody_Ephemerides.jl")

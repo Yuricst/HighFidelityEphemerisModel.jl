@@ -76,7 +76,7 @@ function test_pxform_ephemerides()
     paths = furnish_ephemerides_test_kernels()
 
     et0 = str2et("2026-01-05T00:00:00")
-    params = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    params = HighFidelityEphemerisModel.EphemeridesParameters(
         et0,
         3000.0,
         [1.0, 1.0e-6],
@@ -169,7 +169,7 @@ function moon_centered_parameters(; backend::Symbol, include_drag::Bool = false)
     )
 
     if backend == :spice
-        return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        return HighFidelityEphemerisModel.SpiceParameters(
             et0,
             DU,
             GMs,
@@ -179,7 +179,7 @@ function moon_centered_parameters(; backend::Symbol, include_drag::Bool = false)
             kwargs...,
         )
     elseif backend == :ephemerides
-        return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        return HighFidelityEphemerisModel.EphemeridesParameters(
             et0,
             DU,
             GMs,

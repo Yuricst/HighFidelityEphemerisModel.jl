@@ -24,7 +24,7 @@ test_eom_Nbody_Interp = function()
     et0 = str2et("2020-01-01T00:00:00")
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
         interpolation_time_step=100.0)
@@ -71,7 +71,7 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
     et0 = str2et("2026-01-05T00:00:00")
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
         interpolation_time_step=100.0,

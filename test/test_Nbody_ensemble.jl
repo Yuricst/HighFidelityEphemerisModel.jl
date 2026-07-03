@@ -27,7 +27,7 @@ test_Nbody_Interp_ensemble = function(;verbose = false)
     et0 = str2et("2026-01-05T00:00:00")
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr;
+    parameters = HighFidelityEphemerisModel.InterpParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span)
 
     # initial state (in canonical scale)
@@ -51,7 +51,7 @@ test_Nbody_Interp_ensemble = function(;verbose = false)
     end
 
     # create ensemble problem
-    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Interp!, x0, tspan, parameters)
+    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0, tspan, parameters)
     ensemble_prob = EnsembleProblem(
         prob_base;
         prob_func = prob_func_Nbody
@@ -64,7 +64,7 @@ test_Nbody_Interp_ensemble = function(;verbose = false)
     # solve in serial
     sols_serial = []
     for i = 1:N_traj
-        prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Interp!, x0_conditions[i], tspan, parameters)
+        prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0_conditions[i], tspan, parameters)
         sol = solve(prob, Vern9(), reltol=1e-14, abstol=1e-14)
         push!(sols_serial, sol)
     end

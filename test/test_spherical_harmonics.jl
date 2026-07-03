@@ -74,7 +74,7 @@ function test_spherical_harmonics()
     )
     @test all(isfinite, high_degree_accel)
 
-    params = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    params = HighFidelityEphemerisModel.SpiceParameters(
         0.0,
         1.0,
         [1.0],

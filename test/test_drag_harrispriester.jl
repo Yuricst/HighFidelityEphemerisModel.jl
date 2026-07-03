@@ -12,7 +12,7 @@ function _drag_stm_parameters_harris_priester(et0)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     f_density = HighFidelityEphemerisModel.harris_priester_f_density()
-    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    return HighFidelityEphemerisModel.SpiceParameters(
         et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
         filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
         nmax = 2,
@@ -31,14 +31,14 @@ function _numerical_stm(x0, tspan, parameters; h=1e-7)
         x0_plus = copy(x0)
         x0_plus[i] += h
         sol_ptrb = solve(
-            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0_plus, tspan, parameters),
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0_plus, tspan, parameters),
             Vern8(), reltol=1e-14, abstol=1e-14,
         )
 
         x0_min = copy(x0)
         x0_min[i] -= h
         sol_ptrb_min = solve(
-            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0_min, tspan, parameters),
+            ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0_min, tspan, parameters),
             Vern8(), reltol=1e-14, abstol=1e-14,
         )
 
@@ -101,7 +101,7 @@ function test_harris_priester_eom()
     et0 = str2et("2020-01-01T00:00:00")
     # f_density = (et, r) -> 1e-12
     f_density = HighFidelityEphemerisModel.harris_priester_f_density()
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         frame_PCPF = "IAU_EARTH",
         include_drag = true,
@@ -113,7 +113,7 @@ function test_harris_priester_eom()
     u0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     tspan = (0.0, 2 * 86400 / parameters.TU)
 
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, u0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
     u_check = [-0.6474801648845774, 0.9320966427600279, -0.006164827146379468,
                -0.7821155901146892, -0.49572178306666, -0.007445553992251351]
@@ -184,7 +184,7 @@ function test_harris_priester_jacobian_fd(;verbose=false)
 
     et0 = str2et("2020-01-01T00:00:00")
     f_density = HighFidelityEphemerisModel.harris_priester_f_density()
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
         nmax = 2,
@@ -196,7 +196,7 @@ function test_harris_priester_jacobian_fd(;verbose=false)
     )
 
     x0 = [1.03, 0.0, 0.001, 0.0, sqrt(1/1.03), 0.0]
-    eom = HighFidelityEphemerisModel.eom_NbodySH_SPICE
+    eom = HighFidelityEphemerisModel.eom_NbodySH
     jac_numerical_fd = HighFidelityEphemerisModel.eom_jacobian_fd(
         eom, x0, 0.0, parameters, 0.0
     )
@@ -245,7 +245,7 @@ function test_harris_priester_eom_stm(; verbose=false)
     # Longer integration with smooth cubic Harris-Priester density.
     tspan = (0.0, 3 * 3600 / parameters.TU)
 
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0, tspan, parameters)
     sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
     @test sol.retcode == SciMLBase.ReturnCode.Success
 

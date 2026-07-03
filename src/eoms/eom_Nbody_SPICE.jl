@@ -87,6 +87,16 @@ end
 
 
 """
+    eom_stm_Nbody_SPICE!(dx_stm, x_stm, params, t)
+
+Right-hand side of N-body equations of motion with STM compatible with `DifferentialEquations.jl`
+"""
+function eom_stm_Nbody_SPICE!(dx_stm, x_stm, params, t)
+    return eom_stm_Nbody_SPICE_fd!(dx_stm, x_stm, params, t)
+end
+
+
+"""
     eom_stm_Nbody_SPICE_fd!(dx_stm, x_stm, params, t)
     
 Right-hand side of N-body equations of motion with STM compatible with `DifferentialEquations.jl`

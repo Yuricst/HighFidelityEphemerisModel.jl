@@ -39,11 +39,11 @@ function _nbody_spice_ephemerides_parameters()
     DU = 1e5
     et0 = str2et("2026-01-05T00:00:00")
 
-    parameters_spice = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters_spice = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         include_srp = true,
     )
-    parameters_ephem = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters_ephem = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         include_srp = true,
         ephemerides_files = _ephemerides_test_spk(),
@@ -61,7 +61,7 @@ test_get_pos_ephemerides = function()
     DU = 1.0
     et0 = 0.0
 
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         ephemerides_files = _ephemerides_test_spk(),
     )
@@ -86,9 +86,15 @@ test_eom_Nbody_Ephemerides = function()
     x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
 
     dx_ephem = HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters_ephem, 0.0)
+    dx_generic = HighFidelityEphemerisModel.eom_Nbody(x0, parameters_ephem, 0.0)
     dx_ephem_inplace = zeros(6)
+    dx_generic_inplace = zeros(6)
     HighFidelityEphemerisModel.eom_Nbody_Ephemerides!(dx_ephem_inplace, x0, parameters_ephem, 0.0)
+    HighFidelityEphemerisModel.eom_Nbody!(dx_generic_inplace, x0, parameters_ephem, 0.0)
 
+    @test parameters_ephem isa HighFidelityEphemerisModel.EphemeridesParameters
+    @test dx_generic ≈ dx_ephem atol=1e-15
+    @test dx_generic ≈ dx_generic_inplace atol=1e-15
     @test dx_ephem ≈ dx_ephem_inplace atol=1e-15
 
     dx_spice = HighFidelityEphemerisModel.eom_Nbody_SPICE(x0, parameters_spice, 0.0)
@@ -247,11 +253,11 @@ function nbody_drag_spice_ephemerides_parameters()
         f_density = nbody_ephemerides_drag_constant_density,
     )
 
-    parameters_spice = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters_spice = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         kwargs...,
     )
-    parameters_ephem = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters_ephem = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         kwargs...,
         ephemerides_files = [_ephemerides_test_spk(), ephemerides_test_moon_pa_bpc()],

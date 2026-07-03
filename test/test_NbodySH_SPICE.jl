@@ -32,7 +32,7 @@ test_eom_NbodySH_SPICE = function()
     DU = 1737.4
 
     et0 = str2et("2020-01-01T00:00:00")
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         filepath_spherical_harmonics = filepath_spherical_harmonics,
         nmax = nmax,
@@ -87,16 +87,11 @@ function test_eom_stm_NbodySH_SPICE(;verbose=false)
     DU = 1e5
 
     et0 = str2et("2026-01-05T00:00:00")
-    etf = et0 + 30 * 86400.0
-    interpolate_ephem_span = [et0, etf]
-    interpolation_time_step = 1000.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        interpolate_ephem_span=interpolate_ephem_span,
         filepath_spherical_harmonics = filepath_spherical_harmonics,
         nmax = nmax,
         frame_PCPF = "MOON_PA",
-        interpolation_time_step = interpolation_time_step,
         include_srp = true,
         srp_Cr = 1.15,
         srp_Am = 0.002,
