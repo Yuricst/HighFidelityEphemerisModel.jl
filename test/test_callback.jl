@@ -28,7 +28,7 @@ test_callback_trueanomaly = function()
     et0 = str2et("2026-01-05T00:00:00")
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span)
 
@@ -40,7 +40,7 @@ test_callback_trueanomaly = function()
     tspan = (0.0, 12*86400/parameters.TU)
 
     # solve without callback
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_Interp!, x0, tspan, parameters)
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
     # # plot

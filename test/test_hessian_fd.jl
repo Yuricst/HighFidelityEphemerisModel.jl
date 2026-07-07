@@ -23,7 +23,17 @@ test_hessian_fd = function(;verbose::Bool = false)
     etf = et0 + 30 * 86400.0
     interpolate_ephem_span = [et0, etf]
     interpolation_time_step = 30.0
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    parameters_spice = HighFidelityEphemerisModel.SpiceParameters(
+        et0, DU, GMs, naif_ids, naif_frame, abcorr;
+        filepath_spherical_harmonics = filepath_spherical_harmonics,
+        nmax = nmax,
+        frame_PCPF = "MOON_PA",
+        include_srp = true,
+        srp_Cr = 1.15,
+        srp_Am = 0.002,
+        srp_P0 = 4.56e-6,
+    )
+    parameters_interp = HighFidelityEphemerisModel.InterpParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         interpolate_ephem_span=interpolate_ephem_span,
         filepath_spherical_harmonics = filepath_spherical_harmonics,
@@ -41,14 +51,14 @@ test_hessian_fd = function(;verbose::Bool = false)
     x0_stm = [x0; reshape(I(6),36)]
 
     # list of eom's to check for hessian evaluation
-    eom_list = [
-        HighFidelityEphemerisModel.eom_Nbody_SPICE,
-        HighFidelityEphemerisModel.eom_Nbody_Interp,
-        HighFidelityEphemerisModel.eom_NbodySH_SPICE,
-        HighFidelityEphemerisModel.eom_NbodySH_Interp,
+    eom_param_pairs = [
+        (HighFidelityEphemerisModel.eom_Nbody, parameters_spice),
+        (HighFidelityEphemerisModel.eom_Nbody, parameters_interp),
+        (HighFidelityEphemerisModel.eom_NbodySH, parameters_spice),
+        (HighFidelityEphemerisModel.eom_NbodySH, parameters_interp),
     ]
 
-    for eom in eom_list
+    for (eom, parameters) in eom_param_pairs
         if verbose
             println("\nTesting Hessian evaluation for $eom")
         end

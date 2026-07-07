@@ -12,7 +12,7 @@ function _drag_stm_parameters_jacchia_roberts(et0)
     naif_ids = ["399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
-    return HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+    return HighFidelityEphemerisModel.SpiceParameters(
         et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
         filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
         nmax = 2,
@@ -78,7 +78,7 @@ function test_jacchia_roberts_eom()
     parameters = _drag_stm_parameters_jacchia_roberts(et0)
     u0 = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     tspan = (0.0, 3600.0 / parameters.TU)
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, u0, tspan, parameters)
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, u0, tspan, parameters)
     sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
     @test all(isfinite, sol.u[end])
 end
@@ -122,7 +122,7 @@ function test_jacchia_roberts_eom_stm(; verbose=false)
     # Longer integration with Jacchia-Roberts density.
     tspan = (0.0, 3 * 3600 / parameters.TU)
 
-    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, x0, tspan, parameters)
+    prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0, tspan, parameters)
     sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
     @test sol.retcode == SciMLBase.ReturnCode.Success
 

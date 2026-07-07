@@ -17,7 +17,7 @@ test_interpolate_ephem = function ()
     DU = 3000.0
 
     et0 = str2et("2020-01-01T00:00:00")
-    parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr)
+    parameters = HighFidelityEphemerisModel.SpiceParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr)
 
     # query states to be interpolated
     ets = range(et0, et0 + 30 * 86400.0, 1000)

@@ -1,5 +1,7 @@
 module HighFidelityEphemerisModel
 
+using Ephemerides
+using FrameTransformations
 using Dierckx
 using ForwardDiff
 using Interpolations
@@ -17,13 +19,17 @@ include("perturbations/jacchiaroberts.jl")
 
 include("ephemeris_interpolation.jl")
 include("transformation_interpolation.jl")
+include("ephemerides.jl")
 include("parameters.jl")
 
 include("eoms/eom_Nbody_SPICE.jl")
 include("eoms/eom_Nbody_Interp.jl")
+include("eoms/eom_Nbody_Ephemerides.jl")
 
 include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
+include("eoms/eom_NbodySH_Ephemerides.jl")
+include("eoms/eom_dispatch.jl")
 
 include("events.jl")
 include("spk/utils.jl")
@@ -38,13 +44,18 @@ export eom_jacobian_fd, eom_hessian_fd, et_to_utc_mjd
 
 export InterpolatedEphemeris
 export InterpolatedTransformation
-export HighFidelityEphemerisModelParameters
+export get_pos_ephemerides, get_state_ephemerides, pxform_ephemerides
+export HighFidelityEphemerisModelParameters, AbstractHFEMParameters
+export SpiceParameters, InterpParameters, EphemeridesParameters, EphemeridesBackend
 
-export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE_fd!
-export eom_Nbody_Interp!, eom_Nbody_Interp, eom_stm_Nbody_Interp_fd!
+export eom_Nbody!, eom_Nbody, eom_NbodySH!, eom_NbodySH
+export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE!, eom_stm_Nbody_SPICE_fd!
+export eom_Nbody_Interp!, eom_Nbody_Interp, eom_stm_Nbody_Interp!, eom_stm_Nbody_Interp_fd!
+export eom_Nbody_Ephemerides!, eom_Nbody_Ephemerides, eom_stm_Nbody_Ephemerides!, eom_stm_Nbody_Ephemerides_fd!
 
 export eom_NbodySH_SPICE!, eom_NbodySH_SPICE, eom_stm_NbodySH_SPICE_fd!
 export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
+export eom_NbodySH_Ephemerides!, eom_NbodySH_Ephemerides, eom_stm_NbodySH_Ephemerides_fd!
 
 export get_trueanomaly_event
 export HarrisPriesterModel, harris_priester_f_density
