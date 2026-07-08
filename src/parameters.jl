@@ -241,6 +241,17 @@ function _interpolate_ephemerides(naif_ids, naif_frame, abcorr, center_id, TU, s
 end
 
 
+function _validate_ephemerides_abcorr(abcorr::String)
+    uppercase(strip(abcorr)) == "NONE" && return nothing
+
+    error(
+        "EphemeridesParameters only support abcorr = \"NONE\" because the " *
+        "Ephemerides.jl/FrameTransformations backend returns geometric states. " *
+        "Use SpiceParameters or InterpParameters for aberration-corrected trajectories."
+    )
+end
+
+
 function _make_ephemerides_backend(ephemerides_provider, ephemerides_files, ephemerides_frame_system, frame_PCPF)
     if !isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
         error("Provide either `ephemerides_provider` or `ephemerides_files`, not both.")
@@ -332,6 +343,8 @@ function _construct_hfem_parameters(
             c.include_srp, c.k_srp_cannonball, c.idx_sun,
             c.include_drag, c.k_drag, c.omega_atm, c.f_density, c.u)
     else
+        _validate_ephemerides_abcorr(c.abcorr)
+
         ephemerides_backend = _make_ephemerides_backend(
             ephemerides_provider, ephemerides_files, ephemerides_frame_system, c.frame_PCPF)
 

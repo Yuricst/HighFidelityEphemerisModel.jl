@@ -11,6 +11,8 @@ Third-body positions and frame rotations are queried through the Ephemerides
 backend attached to `params`.
 """
 function eom_NbodySH_Ephemerides!(dx, x, params::EphemeridesParameters, t)
+    _assert_ephemerides_abcorr_supported(params)
+
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
 
@@ -71,6 +73,8 @@ Right-hand side of N-body equations of motion with spherical harmonics compatibl
 with `DifferentialEquations.jl`.
 """
 function eom_NbodySH_Ephemerides(x, params::EphemeridesParameters, t)
+    _assert_ephemerides_abcorr_supported(params)
+
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
