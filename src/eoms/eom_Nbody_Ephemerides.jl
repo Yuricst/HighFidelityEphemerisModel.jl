@@ -1,6 +1,12 @@
 """Ephemerides.jl/FrameTransformations-based N-body equations of motion"""
 
 
+@inline function _assert_ephemerides_abcorr_supported(params::EphemeridesParameters)
+    params.abcorr == "NONE" || _validate_ephemerides_abcorr(params.abcorr)
+    return nothing
+end
+
+
 function _get_pos_3body_ephemerides(params::EphemeridesParameters, ID::String, t)
     et = params.et0 + t * params.TU
     backend = ephemerides_backend(params)
@@ -27,6 +33,8 @@ using the Ephemerides-backed frame system in `params.ephemerides_frame_system`.
 HFEM uses the Ephemerides backend attached to `params`.
 """
 function eom_Nbody_Ephemerides!(dx, x, params::EphemeridesParameters, t)
+    _assert_ephemerides_abcorr_supported(params)
+
     dx[1:3] = x[4:6]
     dx[4:6] = -params.mus[1] / norm(x[1:3])^3 * x[1:3]
 
@@ -68,6 +76,8 @@ end
 Right-hand side of N-body equations of motion compatible with `DifferentialEquations.jl`.
 """
 function eom_Nbody_Ephemerides(x, params::EphemeridesParameters, t)
+    _assert_ephemerides_abcorr_supported(params)
+
     dx = [x[4:6]; -params.mus[1] / norm(x[1:3])^3 * x[1:3]]
 
     for (i,(ID,mu_i)) in enumerate(zip(params.naif_ids, params.mus))
