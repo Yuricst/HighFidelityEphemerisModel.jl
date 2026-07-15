@@ -137,5 +137,40 @@ test_eom_stm_Nbody_Interp = function(;verbose::Bool = false)
 end
 
 
+function test_interp_drag_uses_precomputed_transform()
+    naif_ids = ["301", "399"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    parameters = HighFidelityEphemerisModel.InterpParameters(
+        et0, 1737.4, GMs, naif_ids, "J2000", "NONE";
+        interpolate_ephem_span = [et0, et0 + 3 * 3600.0],
+        interpolation_time_step = 1800.0,
+        frame_PCPF = "MOON_PA",
+        include_drag = true,
+        f_density = (_, _) -> 1e-12,
+    )
+    x = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
+    t = 1800.0 / parameters.TU
+
+    dx_nbody = HighFidelityEphemerisModel.eom_Nbody_Interp(x, parameters, t)
+    dx_nbody_sh = HighFidelityEphemerisModel.eom_NbodySH_Interp(x, parameters, t)
+
+    # A drag RHS must only use the transform captured during interpolation.
+    # An invalid live frame name would make any residual SPICE.pxform call fail.
+    parameters.frame_PCPF = "INVALID_LIVE_SPICE_FRAME"
+
+    dx_nbody_inplace = zeros(6)
+    HighFidelityEphemerisModel.eom_Nbody_Interp!(dx_nbody_inplace, x, parameters, t)
+    dx_nbody_sh_inplace = zeros(6)
+    HighFidelityEphemerisModel.eom_NbodySH_Interp!(dx_nbody_sh_inplace, x, parameters, t)
+
+    @test HighFidelityEphemerisModel.eom_Nbody_Interp(x, parameters, t) ≈ dx_nbody
+    @test dx_nbody_inplace ≈ dx_nbody
+    @test HighFidelityEphemerisModel.eom_NbodySH_Interp(x, parameters, t) ≈ dx_nbody_sh
+    @test dx_nbody_sh_inplace ≈ dx_nbody_sh
+end
+
+
 test_eom_Nbody_Interp()
 test_eom_stm_Nbody_Interp(verbose = false)
+test_interp_drag_uses_precomputed_transform()
