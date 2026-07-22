@@ -196,8 +196,7 @@ function _hfem_common_fields(
     if "10" in naif_ids
         idx_sun = findfirst(x -> x == "10", naif_ids)
     elseif include_srp
-        @error "NAIF ID \"10\" (Sun) must be provided when SRP is included"
-        idx_sun = 0
+        throw(ArgumentError("NAIF ID \"10\" (Sun) must be provided when SRP is included"))
     else
         k_srp_cannonball = 0.0
         idx_sun = 0
