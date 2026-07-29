@@ -224,6 +224,107 @@ function test_spk_state_sampling()
 end
 
 
+function test_spk_rejects_discontinuous_coast_windows()
+    parameters = (
+        TU = 100.0,
+        DU = 10.0,
+        VU = 0.01,
+    )
+    et0 = 1000.0
+
+    # Contiguous times, but an impulsive Δv between arcs.
+    jumping_sols = [
+        MockCoastArc(
+            [0.0, 1.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            zeros(6),
+        ),
+        MockCoastArc(
+            [1.0, 2.0],
+            [1.0, 2.0, 3.0, 0.2, 0.2, 0.3],
+            zeros(6),
+        ),
+    ]
+
+    # Time gap between arcs is also invalid for a merged segment.
+    gapped_sols = [
+        MockCoastArc(
+            [0.0, 1.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            zeros(6),
+        ),
+        MockCoastArc(
+            [1.1, 2.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            zeros(6),
+        ),
+    ]
+
+    # Continuous adjacent arcs may still be grouped into one SPK segment.
+    continuous_sols = [
+        MockCoastArc(
+            [0.0, 1.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            zeros(6),
+        ),
+        MockCoastArc(
+            [1.0, 2.0],
+            [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            zeros(6),
+        ),
+    ]
+
+    mktempdir() do tmpdir
+        @test_throws ErrorException HighFidelityEphemerisModel.write_segmented_states_for_spk!(
+            jumping_sols,
+            [(1, 2)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            outdir = joinpath(tmpdir, "jumping_states"),
+            verbose = false,
+            show_progress = false,
+        )
+
+        @test_throws ErrorException HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+            jumping_sols,
+            [(1, 2)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            verbose = false,
+            show_progress = false,
+        )
+
+        @test_throws ErrorException HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+            gapped_sols,
+            [(1, 2)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            verbose = false,
+            show_progress = false,
+        )
+
+        continuous = HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+            continuous_sols,
+            [(1, 2)],
+            et0,
+            parameters;
+            dt_sec = 50.0,
+            segment_gap_sec = 0.0,
+            verbose = false,
+            show_progress = false,
+        )
+        @test length(continuous.segments) == 1
+        @test continuous.epoch_ranges[1] == (1000.0, 1200.0)
+    end
+end
+
+
 function test_spk_maneuver_and_metadata_helpers()
     parameters = (
         TU = 100.0,
