@@ -36,7 +36,6 @@ struct InterpolatedEphemeris
     )
         @assert 1 <= spline_order <= 5
         if rescale_epoch
-            @warn "rescale_epoch == true is buggy"
             times_input = (ets .- ets[1]) / tstar
         else
             times_input = ets
@@ -74,8 +73,8 @@ Interpolate ephemeris position at a given epoch
 """
 function get_pos(ephem::InterpolatedEphemeris, et::Float64)
     if ephem.rescale_epoch
-        et_eval = et * ephem.tstar + ephem.et_range[1]
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
+        et_eval = (et - ephem.et_range[1]) / ephem.tstar
     else
         et_eval = et
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
@@ -94,8 +93,8 @@ end
 """
 function get_state(ephem::InterpolatedEphemeris, et::Float64)
     if ephem.rescale_epoch
-        et_eval = et * ephem.tstar + ephem.et_range[1]
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
+        et_eval = (et - ephem.et_range[1]) / ephem.tstar
     else
         et_eval = et
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
