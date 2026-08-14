@@ -16,6 +16,7 @@ SPICE = "5bab7191-041a-5c2e-a744-024b9c3a5062"
 
 [compat]
 Dierckx = "0.5"
+Ephemerides = "1"
 ForwardDiff = "0.10, 1"
 Interpolations = "0.16"
 OrdinaryDiffEq = "6"
