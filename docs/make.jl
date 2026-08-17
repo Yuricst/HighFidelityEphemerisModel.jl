@@ -26,6 +26,7 @@ makedocs(
         "Tutorials" => Any[
             "Basics" => "tutorials/basics.md",
             "Perturbations" => "tutorials/perturbations.md",
+            "Gauss variational equations" => "tutorials/gve.md",
             "Jacobians & Hessians" => "tutorials/jacobians_hessians.md",
             "Generating SPICE SPK file" => "tutorials/ode_sol_to_spk.md",
         ],
