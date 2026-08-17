@@ -49,7 +49,7 @@ formulation domains. The N-body wrappers dispatch on `SpiceParameters`,
 and gravitational parameters use the consistent units defined by the supplied
 parameter object.
 
-```@docs
+```@autodocs
 HighFidelityEphemerisModel.pxform_inr2rtn
 HighFidelityEphemerisModel.pxform_rtn2inr
 HighFidelityEphemerisModel.project_inr_to_rtn!
