@@ -4,6 +4,7 @@ version = "0.2.4"
 authors = ["@yuricst, @phungd3"]
 
 [deps]
+AstrodynamicsCore = "5a6b0320-136f-4178-8c7c-d24a6d4b07af"
 Dierckx = "39dd38d3-220a-591b-8e3c-4c3a8c710a94"
 Ephemerides = "6a9c3322-c8fe-4c26-8ad6-14a6f8acd2a0"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -15,6 +16,7 @@ Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 SPICE = "5bab7191-041a-5c2e-a744-024b9c3a5062"
 
 [compat]
+AstrodynamicsCore = "0.1"
 Dierckx = "0.5"
 ForwardDiff = "0.10, 1"
 Interpolations = "0.16"

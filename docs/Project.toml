@@ -1,6 +1,7 @@
 name = "HighFidelityEphemerisModelDocs"
 
 [deps]
+AstrodynamicsCore = "5a6b0320-136f-4178-8c7c-d24a6d4b07af"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 HighFidelityEphemerisModel = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
 
@@ -8,5 +9,6 @@ HighFidelityEphemerisModel = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
 HighFidelityEphemerisModel = {path = ".."}
 
 [compat]
+AstrodynamicsCore = "0.1"
 Documenter = "1"
 julia = "1.10"

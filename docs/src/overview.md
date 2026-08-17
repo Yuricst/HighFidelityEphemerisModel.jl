@@ -15,6 +15,42 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
     STM_tf   = reshape(sol.u[end][7:42],6,6)    # final 6-by-6 STM
     ```
 
+## Propagation formulations
+
+Cartesian propagation is the general/default HFEM formulation and has no
+orbital-element coordinate singularities. HFEM also provides Gauss variational
+equations (GVE) that reuse the same Cartesian force models.
+
+Cartesian coordinates do not remove physical force-model singularities. The
+point-mass model remains singular at zero central-body distance and when the
+spacecraft coincides with another point-mass gravitating body.
+
+| Formulation | State ordering | Domain and intended use |
+|---|---|---|
+| Cartesian | `[x, y, z, vx, vy, vz]` | Broadest robustness and generality; no orbital-element coordinate singularities. |
+| Modified equinoctial (MEE) | `[p, f, g, h, k, L]` | Elliptic, parabolic, and hyperbolic states, including crossings of `e = 1`; the standard prograde chart is singular exactly at `i = pi`. |
+| Classical Keplerian | `[a, e, i, Omega, omega, true_anomaly]` | Useful for completeness, reference, validation, and restricted-domain applications; singular for circular and equatorial states and ill-conditioned at `e = 1`, which it cannot cross smoothly. |
+| Ordinary equinoctial | `[a, f, g, h, k, lambda]` | Elliptic-only (`a > 0`, `e < 1`); regular at circular and prograde-equatorial states but singular exactly at `i = pi`. |
+| Keplerian two-body | `[a, e, i, Omega, omega, true_anomaly]` | Reference, validation, simplified analysis, and practical central-body-dominated propagation. |
+
+Ordinary equinoctial elements are useful for bound satellites, debris,
+asteroids, planets, and other elliptic-orbit applications. In optimization,
+however, an intermediate iterate can become hyperbolic even when the desired
+solution is elliptic; this representation is restrictive unless the iterate
+domain is controlled.
+
+The two-body model can be an appropriate approximation when one central body
+dominates, including some low-thrust interplanetary cruise phases. Use N-body
+gravity when multiple bodies have meaningful influence, and spherical
+harmonics when point-mass gravity is inadequate near a nonspherical body.
+
+For every GVE force model, HFEM reconstructs Cartesian position and velocity,
+evaluates the corresponding existing inertial Cartesian EOM, removes the
+central two-body acceleration, projects the total remaining perturbation once
+into RTN, and applies the selected variational equations. See
+[Gauss variational equations](@ref) for examples and detailed limitations.
+Third-body accelerations are not evaluated directly in RTN.
+
 ## Dynamics model
 
 In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravitational term, together with the following perturbations:

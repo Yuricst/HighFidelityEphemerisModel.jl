@@ -17,6 +17,7 @@
 
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
+- Cartesian and Gauss variational equation propagation using modified equinoctial, classical Keplerian, and ordinary equinoctial elements
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
 - ephemeris interpolation, to define equations of motion compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
 
@@ -24,6 +25,13 @@ What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) implemented (at least for now)
 
 We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`.
+
+Cartesian propagation remains the general formulation. The GVE interfaces reuse
+the same inertial HFEM force models and are available for N-body and N-body plus
+spherical-harmonic propagation with SPICE, Interp, and Ephemerides parameter
+backends. See the [Gauss variational equations tutorial](docs/src/tutorials/gve.md)
+for state conventions, supported domains, examples, and formulation-selection
+guidance.
 
 
 
@@ -109,4 +117,3 @@ x0_stm = [x0; reshape(I(6),36)]
 prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
-

@@ -40,6 +40,38 @@ Pages   = [
 ]
 ```
 
+## [Gauss variational equations](@id gve-api)
+
+The GVE interfaces reuse the Cartesian N-body and N-body+SH force models. See
+the [Gauss variational equations](@ref) tutorial for state conventions and
+formulation domains. The N-body wrappers dispatch on `SpiceParameters`,
+`InterpParameters`, and `EphemeridesParameters`; states, time, acceleration,
+and gravitational parameters use the consistent units defined by the supplied
+parameter object.
+
+```@docs
+HighFidelityEphemerisModel.pxform_inr2rtn
+HighFidelityEphemerisModel.pxform_rtn2inr
+HighFidelityEphemerisModel.project_inr_to_rtn!
+HighFidelityEphemerisModel.gve_mee_derivs!
+HighFidelityEphemerisModel.gve_mee_Nbody!
+HighFidelityEphemerisModel.gve_mee_Nbody
+HighFidelityEphemerisModel.gve_mee_NbodySH!
+HighFidelityEphemerisModel.gve_mee_NbodySH
+HighFidelityEphemerisModel.gve_kep_derivs!
+HighFidelityEphemerisModel.gve_kep_Nbody!
+HighFidelityEphemerisModel.gve_kep_Nbody
+HighFidelityEphemerisModel.gve_kep_NbodySH!
+HighFidelityEphemerisModel.gve_kep_NbodySH
+HighFidelityEphemerisModel.gve_eq_derivs!
+HighFidelityEphemerisModel.gve_eq_Nbody!
+HighFidelityEphemerisModel.gve_eq_Nbody
+HighFidelityEphemerisModel.gve_eq_NbodySH!
+HighFidelityEphemerisModel.gve_eq_NbodySH
+HighFidelityEphemerisModel.eom_kep_twobody!
+HighFidelityEphemerisModel.eom_kep_twobody
+```
+
 ## Utility routines
 
 ```@autodocs
