@@ -50,26 +50,11 @@ and gravitational parameters use the consistent units defined by the supplied
 parameter object.
 
 ```@autodocs
-HighFidelityEphemerisModel.pxform_inr2rtn
-HighFidelityEphemerisModel.pxform_rtn2inr
-HighFidelityEphemerisModel.project_inr_to_rtn!
-HighFidelityEphemerisModel.gve_mee_derivs!
-HighFidelityEphemerisModel.gve_mee_Nbody!
-HighFidelityEphemerisModel.gve_mee_Nbody
-HighFidelityEphemerisModel.gve_mee_NbodySH!
-HighFidelityEphemerisModel.gve_mee_NbodySH
-HighFidelityEphemerisModel.gve_kep_derivs!
-HighFidelityEphemerisModel.gve_kep_Nbody!
-HighFidelityEphemerisModel.gve_kep_Nbody
-HighFidelityEphemerisModel.gve_kep_NbodySH!
-HighFidelityEphemerisModel.gve_kep_NbodySH
-HighFidelityEphemerisModel.gve_eq_derivs!
-HighFidelityEphemerisModel.gve_eq_Nbody!
-HighFidelityEphemerisModel.gve_eq_Nbody
-HighFidelityEphemerisModel.gve_eq_NbodySH!
-HighFidelityEphemerisModel.gve_eq_NbodySH
-HighFidelityEphemerisModel.eom_kep_twobody!
-HighFidelityEphemerisModel.eom_kep_twobody
+Modules = [HighFidelityEphemerisModel]
+Order   = [:type, :constant, :function]
+Pages   = [
+    "eoms/gve.jl",
+]
 ```
 
 ## Utility routines
