@@ -94,15 +94,16 @@ function _horner(coeffs, x)
 end
 
 
-function _roots!(a::Vector{Float64}, croots::Matrix{Float64}, irl::Int)
-    na = length(a)
+function _roots!(a::Vector{Float64}, na::Int, croots::Matrix{Float64}, irl::Int)
+    (1 <= na <= length(a)) || error("Jacchia-Roberts root finder received invalid polynomial length $na")
     ir = 0
     n1 = na - 1
     n2 = n1 - 1
     while ir < irl
         z = [croots[ir + 1, 1], croots[ir + 1, 2]]
         dif = 0.0
-        while true
+        converged = false
+        for _ in 1:100
             cb = [a[n1 + 1], 0.0]
             cc = [a[n1 + 1], 0.0]
             for i in 0:n2
@@ -118,14 +119,19 @@ function _roots!(a::Vector{Float64}, croots::Matrix{Float64}, irl::Int)
             end
             zs = copy(z)
             denom = cc[1]^2 + cc[2]^2
+            denom == 0.0 && error("Jacchia-Roberts root finder hit a zero derivative")
             z[1] -= (cb[1] * cc[1] + cb[2] * cc[2]) / denom
             z[2] += (cb[1] * cc[2] - cb[2] * cc[1]) / denom
             dif = abs((zs[1] - z[1]) / zs[1])
             if zs[2] != 0.0
                 dif += abs((zs[2] - z[2]) / zs[2])
             end
-            dif <= 1.0e-14 && break
+            if dif <= 1.0e-14
+                converged = true
+                break
+            end
         end
+        converged || error("Jacchia-Roberts root finder failed to converge")
         croots[ir + 1, 1] = z[1]
         croots[ir + 1, 2] = z[2]
         ir += 1
@@ -134,8 +140,8 @@ function _roots!(a::Vector{Float64}, croots::Matrix{Float64}, irl::Int)
 end
 
 
-function _deflate_polynomial!(c::Vector{Float64}, root::Float64, c_new::Vector{Float64})
-    n = length(c)
+function _deflate_polynomial!(c::Vector{Float64}, n::Int, root::Float64, c_new::Vector{Float64})
+    (1 <= n <= length(c)) || error("Jacchia-Roberts deflation received invalid polynomial length $n")
     sumv = c[n]
     for i in (n - 1):-1:1
         save = c[i]
@@ -151,23 +157,24 @@ function _jr_compute_roots(tx::Real)
     c_star = Vector{Float64}(undef, 5)
     c_star[1] = _JR_CON_C[1] + 1.500625e6 * tx_f / (tx_f - _JR_TZERO)
     c_star[2:5] .= _JR_CON_C[2:5]
+    na = 5
 
     aux = zeros(2, 2)
     aux[1, 1] = 125.0
     aux[1, 2] = 0.0
-    _roots!(c_star, aux, 1)
+    _roots!(c_star, na, aux, 1)
     root1 = aux[1, 1]
-    _deflate_polynomial!(c_star, root1, c_star)
+    _deflate_polynomial!(c_star, na, root1, c_star)
 
     aux[1, 1] = 200.0
     aux[1, 2] = 0.0
-    _roots!(c_star, aux, 1)
+    _roots!(c_star, na - 1, aux, 1)
     root2 = aux[1, 1]
-    _deflate_polynomial!(c_star, root2, c_star)
+    _deflate_polynomial!(c_star, na - 1, root2, c_star)
 
     aux[1, 1] = 10.0
     aux[1, 2] = 125.0
-    _roots!(c_star, aux, 1)
+    _roots!(c_star, na - 2, aux, 1)
     x_root = aux[1, 1]
     y_root = abs(aux[1, 2])
     return root1, root2, x_root, y_root
