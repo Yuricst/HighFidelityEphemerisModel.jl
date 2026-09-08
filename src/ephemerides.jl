@@ -178,11 +178,45 @@ function EphemeridesBackend(provider; frame_PCPF::Union{Nothing,String}=nothing,
         "No Ephemerides.jl provider was supplied. Pass `ephemerides_provider` or `ephemerides_files`."
     )
 
+    ensure_ephemerides_thread_caches!(provider)
+
     if isnothing(frame_system)
         frame_system = build_ephemerides_frame_system(provider, frame_PCPF)
     end
 
     return EphemeridesBackend(provider, frame_system)
+end
+
+
+"""
+    ensure_ephemerides_thread_caches!(provider)
+
+Pad Ephemerides.jl SPK/PCK segment caches to `Threads.maxthreadid()`.
+
+Ephemerides allocates `Threads.nthreads()` cache slots but indexes them with
+`Threads.threadid()`. With an interactive thread pool those IDs are not
+`1:nthreads()`, so `@threads` workers can `BoundsError` on the cache vector.
+"""
+function ensure_ephemerides_thread_caches!(provider)
+    isnothing(provider) && return provider
+
+    nneed = isdefined(Threads, :maxthreadid) ? Threads.maxthreadid() : Threads.nthreads()
+    for daf in provider.files
+        for fname in fieldnames(typeof(daf.seglist))
+            segs = getfield(daf.seglist, fname)
+            segs isa AbstractVector || continue
+            for seg in segs
+                hasfield(typeof(seg), :cache) || continue
+                caches = getfield(seg, :cache)
+                caches isa AbstractVector || continue
+                isempty(caches) && continue
+                while length(caches) < nneed
+                    push!(caches, deepcopy(caches[1]))
+                end
+            end
+        end
+    end
+    return provider
 end
 
 
