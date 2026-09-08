@@ -7,11 +7,11 @@
 - solar radiation pressure (SRP)
 - atmospheric drag
 
-Mathematical definitions appear in the [Overview](@ref). This page shows how to enable each term in `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` and pro[...]
+Mathematical definitions appear in the [Overview](@ref "Overview" overview.md). This page shows how to enable each term in `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` and propagate with `OrdinaryDiffEq.jl`.
 
 !!! tip
 
-    Before running the examples, download SPICE kernels and set `ENV["SPICE"]` to your kernel directory, or `furnsh` the files under `spice/test` in this repository. Generic kernels: [https://naif[...]
+    Before running the examples, download SPICE kernels and set `ENV["SPICE"]` to your kernel directory, or `furnsh` the files under `spice/test` in this repository. Generic kernels: [https://naif.jpl.nasa.gov/pub/naif/generic_kernels/](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/).
 
 !!! note
 
@@ -69,7 +69,7 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 ## Spherical harmonics
 
-Use the `NbodySH` equations of motion when the gravity field of the central body is not spherical. Provide a gravity model file, the maximum degree `nmax`, and the planet-centered planet-fixed (PC[...]
+Use the `NbodySH` equations of motion when the gravity field of the central body is not spherical. Provide a gravity model file, the maximum degree `nmax`, and the planet-centered planet-fixed (PCPF) frame name.
 
 ```julia
 naif_ids = ["301", "399", "10"]
@@ -100,7 +100,7 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 ## Ephemerides.jl backend
 
-`EphemeridesParameters` uses Julia-native ephemeris queries instead of direct SPICE ephemeris calls at runtime. Pass either an existing `ephemerides_provider` or a list of ephemeris files through[...]
+`EphemeridesParameters` uses Julia-native ephemeris queries instead of direct SPICE ephemeris calls at runtime. Pass either an existing `ephemerides_provider` or a list of ephemeris files through `ephemerides_files`. For spherical harmonics, also provide the binary PCK needed by the body-fixed frame transformation.
 
 ```julia
 paths = [
@@ -124,7 +124,7 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 !!! note
 
-    The Ephemerides.jl backend supports third-body gravity, spherical harmonics, SRP, and drag. Frame transforms such as `"J2000"` to `"MOON_PA"` are handled through `FrameTransformations.jl`. Fo[...]
+    The Ephemerides.jl backend supports third-body gravity, spherical harmonics, SRP, and drag. Frame transforms such as `"J2000"` to `"MOON_PA"` are handled through `FrameTransformations.jl`. For common DE440 body pairs, the helper routines also try segment-chain fallbacks through the solar-system barycenter and Earth-Moon barycenter when a direct pair is unavailable.
 
 
 ## Solar radiation pressure
@@ -156,11 +156,11 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 ## Atmospheric drag
 
-Drag uses a quadratic law with density supplied by a callback `f_density(et, r_km)` returning $\rho$ in kg/m³. The atmosphere is modeled as co-rotating with angular rate `omega_atm` (default: Ea[...]
+Drag uses a quadratic law with density supplied by a callback `f_density(et, r_km)` returning $\rho$ in kg/m³. The atmosphere is modeled as co-rotating with angular rate `omega_atm` (default: Earth sidereal rate about the $z$-axis).
 
-When drag is enabled, the EOM transform the spacecraft position from `naif_frame` to `frame_PCPF` before calling `f_density`. Custom callbacks must therefore expect **`r_km` in `frame_PCPF` (km)*[...]
+When drag is enabled, the EOM transform the spacecraft position from `naif_frame` to `frame_PCPF` before calling `f_density`. Custom callbacks must therefore expect **`r_km` in `frame_PCPF` (km)**, not in the inertial frame. Set `frame_PCPF` (e.g. `"IAU_EARTH"` for Earth drag).
 
-A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km)[...]
+A built-in Harris–Priester table is available via `harris_priester_f_density(R_earth_km)`. The argument `R_earth_km` is the **Earth reference radius in km** used to form altitude as `norm(r_km) - R_earth_km`; it is not the canonical distance unit `DU` (those may differ if you choose a different `DU` for scaling). The Jacchia–Roberts model is available via `jacchia_roberts_f_density` (constant F10.7 / F10.7a / Kp; SPICE geodetics). Drag is supported by `eom_Nbody!` and `eom_NbodySH!` for all parameter backends, including Ephemerides.jl.
 
 ```julia
 naif_ids = ["399", "10"]   # Earth-centered; Sun for optional third-body / SRP
@@ -194,7 +194,7 @@ sol = solve(prob, Vern7(), reltol=1e-12, abstol=1e-12)
 
 ## Combining perturbations
 
-Flags compose in a single parameter object. The example below uses the legacy interpolated backend (compatible with `EnsembleThreads` and `ForwardDiff`) and enables spherical harmonics, SRP, and [...]
+Flags compose in a single parameter object. The example below uses the legacy interpolated backend (compatible with `EnsembleThreads` and `ForwardDiff`) and enables spherical harmonics, SRP, and drag together. For new non-SPICE workflows, prefer `EphemeridesParameters` when the needed kernels are available through Ephemerides.jl.
 
 ```julia
 naif_ids = ["399", "301", "10"]     # Earth-centered inertial frame
@@ -233,7 +233,7 @@ sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 
 !!! warning
 
-    For Earth-orbit drag with Harris–Priester, use an Earth-centered `naif_ids` (e.g. `["399", "10"]`) and pass the physical Earth radius in km to `harris_priester_f_density`. The combined exam[...]
+    For Earth-orbit drag with Harris–Priester, use an Earth-centered `naif_ids` (e.g. `["399", "10"]`) and pass the physical Earth radius in km to `harris_priester_f_density`. The combined example above uses a small constant density as a placeholder for lunar-centric demonstration only.
 
 
 ## Choosing an equation of motion
@@ -243,13 +243,13 @@ sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 | `Nbody` | third-body, optional SRP & drag | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
 | `NbodySH` | above + spherical harmonics | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
 
-See the full function list and STM options in the [Overview](@ref).
+See the full function list and STM options in the [Overview](@ref "Overview" overview.md).
 
 | Use case | Recommended EOM |
-|----------|------------------|
+|----------|-----------------|
 | High accuracy, few propagations | `SpiceParameters` + `eom_NbodySH!` |
 | Julia-native ephemerides | `EphemeridesParameters` + `eom_NbodySH!` |
 | Legacy interpolation / sensitivities | `InterpParameters` + `eom_NbodySH!` |
 | No harmonics needed | `eom_Nbody!` |
 
-For IVP setup and STM propagation, see [Basics](@ref). For Jacobians and Hessians, see [Jacobians & Hessians](@ref).
+For IVP setup and STM propagation, see [Basics](@ref "Basics" tutorials/basics.md). For Jacobians and Hessians, see [Jacobians & Hessians](@ref "Jacobians & Hessians" tutorials/jacobians_hessians.md).
