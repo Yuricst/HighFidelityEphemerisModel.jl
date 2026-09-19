@@ -80,6 +80,30 @@ test_get_pos_ephemerides = function()
 end
 
 
+test_ephemerides_rejects_aberration_correction = function()
+    naif_ids = ["399", "301"]
+    GMs = [1.0, 1.0e-6]
+    naif_frame = "J2000"
+    DU = 1.0
+    et0 = 0.0
+
+    @test_throws ErrorException HighFidelityEphemerisModel.EphemeridesParameters(
+        et0, DU, GMs, naif_ids, naif_frame, "LT+S";
+        ephemerides_files = _ephemerides_test_spk(),
+    )
+
+    parameters = HighFidelityEphemerisModel.EphemeridesParameters(
+        et0, DU, GMs, naif_ids, naif_frame, "NONE";
+        ephemerides_files = _ephemerides_test_spk(),
+    )
+    parameters.abcorr = "LT+S"
+
+    x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
+    @test_throws ErrorException HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters, 0.0)
+    @test_throws ErrorException HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, parameters, 0.0)
+end
+
+
 test_eom_Nbody_Ephemerides = function()
     parameters_spice, parameters_ephem = _nbody_spice_ephemerides_parameters()
 
@@ -218,6 +242,7 @@ end
 
 
 test_get_pos_ephemerides()
+test_ephemerides_rejects_aberration_correction()
 test_eom_Nbody_Ephemerides()
 test_eom_stm_Nbody_Ephemerides(verbose=verbose)
 test_Nbody_Ephemerides_ensemble()
