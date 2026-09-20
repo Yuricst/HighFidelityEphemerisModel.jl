@@ -92,5 +92,28 @@ function test_eom_Nbody_dispatch_Interp()
 end
 
 
+function test_srp_requires_sun()
+    args = (0.0, 1.0, [1.0], ["399"])
+
+    @test_throws ArgumentError HighFidelityEphemerisModel.SpiceParameters(
+        args...; include_srp = true
+    )
+    @test_throws ArgumentError HighFidelityEphemerisModel.InterpParameters(
+        args...;
+        include_srp = true,
+        interpolate_ephem_span = [0.0, 1.0],
+    )
+    @test_throws ArgumentError HighFidelityEphemerisModel.EphemeridesParameters(
+        args...;
+        include_srp = true,
+        ephemerides_frame_system = :unused,
+    )
+    @test_throws ArgumentError HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+        args...; include_srp = true
+    )
+end
+
+
 test_eom_Nbody_dispatch_SPICE()
 test_eom_Nbody_dispatch_Interp()
+test_srp_requires_sun()
