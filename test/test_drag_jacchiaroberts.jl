@@ -52,6 +52,54 @@ function test_jacchia_roberts_altitude_guard()
 end
 
 
+function _jr_eval_cstar(c, z)
+    s = c[end] * one(z)
+    for i in (length(c) - 1):-1:1
+        s = c[i] + s * z
+    end
+    return s
+end
+
+
+function test_jacchia_roberts_low_altitude_roots()
+    # Typical exospheric temperature for F10.7 = F10.7a = 150.
+    t_inf = 379.0 + 3.24 * 150.0
+    tx = 371.6678 + 0.0518806 * t_inf - 294.3505 * exp(-0.00216222 * t_inf)
+    root1, root2, x_root, y_root = HighFidelityEphemerisModel._jr_compute_roots(tx)
+
+    c = zeros(5)
+    c[1] = HighFidelityEphemerisModel._JR_CON_C[1] +
+        1.500625e6 * tx / (tx - HighFidelityEphemerisModel._JR_TZERO)
+    c[2:5] .= HighFidelityEphemerisModel._JR_CON_C[2:5]
+
+    # Independent companion-matrix roots of the same quartic, used as a
+    # regression oracle for the deflation sequence.
+    companion = [
+        0.0 0.0 0.0 -c[1]/c[5];
+        1.0 0.0 0.0 -c[2]/c[5];
+        0.0 1.0 0.0 -c[3]/c[5];
+        0.0 0.0 1.0 -c[4]/c[5]
+    ]
+    eigvals_sorted = sort(eigvals(companion); by = z -> (real(z), imag(z)))
+    found = sort(
+        [complex(root1), complex(root2), complex(x_root, y_root), complex(x_root, -y_root)];
+        by = z -> (real(z), imag(z)),
+    )
+    @test found ≈ eigvals_sorted rtol=1e-10 atol=1e-8
+
+    @test abs(_jr_eval_cstar(c, root1)) < 1e-4
+    @test abs(_jr_eval_cstar(c, root2)) < 1e-4
+    @test abs(_jr_eval_cstar(c, complex(x_root, y_root))) < 1e-4
+    @test abs(_jr_eval_cstar(c, complex(x_root, -y_root))) < 1e-4
+
+    # 100-125 km uses these roots through rho_125. Before the deflation-length
+    # fix, this path returned O(1) wrong polynomial roots and corrupt density.
+    rho_110 = HighFidelityEphemerisModel.JacchiaRobertsModel(110.0)
+    @test isfinite(rho_110)
+    @test rho_110 > 0.0
+end
+
+
 function test_jacchia_roberts_regression()
     et = str2et("2020-01-01T00:00:00")
     f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density()
@@ -151,6 +199,7 @@ end
 
 test_jacchia_roberts_f_density_api()
 test_jacchia_roberts_altitude_guard()
+test_jacchia_roberts_low_altitude_roots()
 test_jacchia_roberts_regression()
 test_jacchia_roberts_vs_harris_priester()
 test_jacchia_roberts_eom()
