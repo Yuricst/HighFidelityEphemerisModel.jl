@@ -23,6 +23,44 @@ end
 
 
 """
+    unwrap_euler_angles!(angles)
+
+Remove 2π discontinuities along each Euler-angle time history in-place.
+
+`angles` is a 3-by-N matrix whose columns are successive samples. SPICE `m2eul`
+returns each angle in (-π, π], so a steadily spinning body-fixed frame (for
+example `IAU_EARTH`) produces sawtooth jumps. Spline interpolation across those
+jumps yields nonsensical rotation matrices between knots; unwrapping restores a
+continuous history before the splines are built.
+"""
+function unwrap_euler_angles!(angles::AbstractMatrix{<:Real})
+    size(angles, 1) == 3 || error("Expected a 3-by-N Euler-angle history, got size $(size(angles)).")
+    n = size(angles, 2)
+    n == 0 && return angles
+
+    @inbounds for component in 1:3
+        for i in 2:n
+            Δ = angles[component, i] - angles[component, i - 1]
+            if Δ > π
+                angles[component, i] -= 2π * round(Δ / 2π)
+            elseif Δ < -π
+                angles[component, i] -= 2π * round(Δ / 2π)
+            end
+            # Guard residual multi-turn gaps from coarse sampling.
+            while angles[component, i] - angles[component, i - 1] > π
+                angles[component, i] -= 2π
+            end
+            while angles[component, i] - angles[component, i - 1] < -π
+                angles[component, i] += 2π
+            end
+        end
+    end
+
+    return angles
+end
+
+
+"""
 InterpolatedTransformation struct
 
 # Fields
@@ -72,6 +110,9 @@ struct InterpolatedTransformation
             T = SPICE.pxform(frame_from, frame_to, et)
             euler_angles[:,idx] .= m2eul(T, axis_sequence...)
         end
+        # m2eul angles lie in (-π, π]; unwrap before spline fitting so steadily
+        # rotating frames (e.g. IAU_EARTH) do not introduce 2π discontinuities.
+        unwrap_euler_angles!(euler_angles)
         splines = [
             Spline1D(times_input, euler_angles[1,:]; k=spline_order, bc="error"),
             Spline1D(times_input, euler_angles[2,:]; k=spline_order, bc="error"),
