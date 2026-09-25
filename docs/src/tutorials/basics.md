@@ -1,4 +1,4 @@
-# Basics
+# Basic Propagation in Cartesian Coordinates
 
 We will now go over how to use the equations of motion to propagate some initial state until some future time, i.e. 
 

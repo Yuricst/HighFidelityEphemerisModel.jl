@@ -1,6 +1,6 @@
 # `HighFidelityEphemerisModel.jl`: High-Fidelity Ephemeris Model for Astrodynamics
 
-`HighFidelityEphemerisModel.jl` is a minimal implementation of high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem[...]
+`HighFidelityEphemerisModel.jl` is a minimal implementation of high-fidelity ephemeris model dynamics compatible with the [`OrdinaryDiffEq.jl`](https://github.com/SciML/OrdinaryDiffEq.jl) ecosystem.
 
 ![Lunar NRHO illustration](https://raw.githubusercontent.com/Yuricst/HighFidelityEphemerisModel.jl/main/demos/plots/demo_NRHO_deviations.png)
 
@@ -9,12 +9,10 @@ What `HighFidelityEphemerisModel.jl` contains:
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
 - SPICE, Ephemerides.jl, and legacy interpolated-ephemeris parameter backends
 
-The preferred propagation API uses `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` together with generic EOM names such as `eom_Nbody!` and `eom_NbodySH!`. `HighFidelityEphemeris[...]
+The preferred propagation API uses `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` together with generic EOM names such as `eom_Nbody!` and `eom_NbodySH!`.
 
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) impemented (at least for now)
-
-We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `Ephemerides`, `ForwardDiff`, `FrameTransformations`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, [...]
 
 
 ## Install
