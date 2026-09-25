@@ -8,8 +8,7 @@ remains inside its domain.
 
 The GVE interfaces dispatch on `SpiceParameters`, `InterpParameters`, and
 `EphemeridesParameters` in the same way as `eom_Nbody!` and `eom_NbodySH!`.
-Both mutating and nonmutating forms are available; see the [GVE API](@ref
-gve-api).
+Both mutating and nonmutating forms are available; see the [GVE API](@ref gve-api).
 
 ## Force-model architecture
 

@@ -33,7 +33,7 @@ The package is available on Julia registry:
 ## Tutorials
 
 - [Overview](@ref)
-- [Basics](@ref)
+- [Basics](@ref "Basic Propagation in Cartesian Coordinates")
 - [Perturbations](@ref)
 - [Gauss variational equations](@ref)
 - [Jacobians & Hessians](@ref)

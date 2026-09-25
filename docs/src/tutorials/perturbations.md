@@ -252,4 +252,4 @@ See the full function list and STM options in the [Overview](@ref).
 | Legacy interpolation / sensitivities | `InterpParameters` + `eom_NbodySH!` |
 | No harmonics needed | `eom_Nbody!` |
 
-For IVP setup and STM propagation, see [Basics](@ref). For Jacobians and Hessians, see [Jacobians & Hessians](@ref).
+For IVP setup and STM propagation, see [Basics](@ref "Basic Propagation in Cartesian Coordinates"). For Jacobians and Hessians, see [Jacobians & Hessians](@ref).
