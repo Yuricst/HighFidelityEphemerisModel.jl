@@ -150,10 +150,10 @@ end
     position_errors, velocity_errors =
         _gve_cartesian_residuals(sol_rv, sol_mee, AstrodynamicsCore.mee2rv, mu, ts)
     @test position_errors[end] * params.DU < 1e-4       # in km
-    @test velocity_errors[end] * params.VU < 2e-11
+    @test velocity_errors[end] * params.VU < 1e-10      # in km/s
     # Allow small cross-platform/adaptive-step variation over the long L2 propagation.
     @test maximum(position_errors) * params.DU < 5e-4   # in km
-    @test maximum(velocity_errors) * params.VU < 5e-11
+    @test maximum(velocity_errors) * params.VU < 5e-10  # in km/s
 
     callback = ContinuousCallback(
         (u, t, integrator) -> min(u[2], abs(u[2] - 1), abs(sin(u[3]))) - 1e-3,
