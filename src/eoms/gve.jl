@@ -305,8 +305,8 @@ end
 
 
 """Classical Keplerian GVE for the same force model as `eom_Nbody!`."""
-gve_kep_Nbody!(dkep, kep, params::AbstractHFEMParameters, t) =
-    _gve_kep!(dkep, kep, params, t, Val(false))
+gve_kep_Nbody!(dkep, kep, params::AbstractHFEMParameters, t) = _gve_kep!(dkep, kep, params, t, Val(false))
+
 
 """Out-of-place form of [`gve_kep_Nbody!`](@ref)."""
 function gve_kep_Nbody(kep, params::AbstractHFEMParameters, t)
@@ -316,8 +316,8 @@ function gve_kep_Nbody(kep, params::AbstractHFEMParameters, t)
 end
 
 """Classical Keplerian GVE for the same force model as `eom_NbodySH!`."""
-gve_kep_NbodySH!(dkep, kep, params::AbstractHFEMParameters, t) =
-    _gve_kep!(dkep, kep, params, t, Val(true))
+gve_kep_NbodySH!(dkep, kep, params::AbstractHFEMParameters, t) = _gve_kep!(dkep, kep, params, t, Val(true))
+
 
 """Out-of-place form of [`gve_kep_NbodySH!`](@ref)."""
 function gve_kep_NbodySH(kep, params::AbstractHFEMParameters, t)
