@@ -7,7 +7,7 @@
 - solar radiation pressure (SRP)
 - atmospheric drag
 
-Mathematical definitions appear in the [Overview](@ref "Overview" overview.md). This page shows how to enable each term in `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` and propagate with `OrdinaryDiffEq.jl`.
+Mathematical definitions appear in the [Overview](@ref). This page shows how to enable each term in `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` and propagate with `OrdinaryDiffEq.jl`.
 
 !!! tip
 
@@ -243,7 +243,7 @@ sol = solve(prob, Vern8(), reltol=1e-12, abstol=1e-12)
 | `Nbody` | third-body, optional SRP & drag | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
 | `NbodySH` | above + spherical harmonics | `SpiceParameters` | `EphemeridesParameters` | `InterpParameters` |
 
-See the full function list and STM options in the [Overview](@ref "Overview" overview.md).
+See the full function list and STM options in the [Overview](@ref).
 
 | Use case | Recommended EOM |
 |----------|-----------------|
@@ -252,4 +252,4 @@ See the full function list and STM options in the [Overview](@ref "Overview" ove
 | Legacy interpolation / sensitivities | `InterpParameters` + `eom_NbodySH!` |
 | No harmonics needed | `eom_Nbody!` |
 
-For IVP setup and STM propagation, see [Basics](@ref "Basics" tutorials/basics.md). For Jacobians and Hessians, see [Jacobians & Hessians](@ref "Jacobians & Hessians" tutorials/jacobians_hessians.md).
+For IVP setup and STM propagation, see [Basics](@ref). For Jacobians and Hessians, see [Jacobians & Hessians](@ref).
