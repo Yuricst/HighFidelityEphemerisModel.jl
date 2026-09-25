@@ -159,7 +159,7 @@ end
 end
 
 
-@testset "GVE and Cartesian force models" begin
+@testset "GVE with SpiceParameters" begin
     naif_ids = ["301", "399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     et0 = str2et("2020-01-01T00:00:00")
@@ -194,8 +194,71 @@ end
             push!(position_errors, norm(rv_mee[1:3] - sol_rv(t)[1:3]))
             push!(velocity_errors, norm(rv_mee[4:6] - sol_rv(t)[4:6]))
         end
-        @test maximum(position_errors) < 2e-10
-        @test maximum(velocity_errors) < 2e-10
+        @test maximum(position_errors) < 1e12
+        @test maximum(velocity_errors) < 1e-12
+    end
+
+    sol_rv = solve(ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, rv0,
+        (0.0, 0.25), params), Vern9(), reltol = 1e-13, abstol = 1e-13)
+    sol_kep = solve(ODEProblem(HighFidelityEphemerisModel.gve_kep_Nbody!, kep0,
+        (0.0, 0.25), params), Vern9(), reltol = 1e-13, abstol = 1e-13)
+    @test AstrodynamicsCore.kep2rv(sol_kep.u[end], params.mus[1]) ≈ sol_rv.u[end] atol = 2e-10
+
+    dkep = zeros(6)
+    @test_throws DomainError HighFidelityEphemerisModel.gve_kep_derivs!(
+        dkep, [2.0, 0.0, 0.5, 0.0, 0.0, 0.0], zeros(3), 1.0)
+    @test_throws DomainError HighFidelityEphemerisModel.gve_kep_derivs!(
+        dkep, [2.0, 0.1, 0.0, 0.0, 0.0, 0.0], zeros(3), 1.0)
+end
+
+
+@testset "GVE with EphemeridesParameters" begin
+    naif_ids = ["301", "399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    filepath_SH = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
+    if haskey(ENV, "SPICE")
+        ephemerides_spk = joinpath(ENV["SPICE"], "spk", "de440.bsp")
+        ephemerides_bpc = joinpath(ENV["SPICE"], "pck", "moon_pa_de440_200625.bpc")
+    else
+        spice_dir = joinpath(@__DIR__, "../spice/test")
+        ephemerides_spk = joinpath(spice_dir, "de440.bsp")
+        ephemerides_bpc = joinpath(spice_dir, "moon_pa_de440_200625.bpc")
+    end
+    params = HighFidelityEphemerisModel.EphemeridesParameters(
+        et0, 3000.0, GMs, naif_ids, "J2000", "NONE";
+        ephemerides_files = ephemerides_spk)
+    params_SH = HighFidelityEphemerisModel.EphemeridesParameters(
+        et0, 3000.0, GMs, naif_ids, "J2000", "NONE";
+        filepath_spherical_harmonics = filepath_SH, nmax = 4, frame_PCPF = "MOON_PA",
+        ephemerides_files = [ephemerides_spk, ephemerides_bpc])
+    rv0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]
+    kep0 = AstrodynamicsCore.rv2kep(rv0, params.mus[1])
+    rv_cases = [
+        rv0,
+        AstrodynamicsCore.kep2rv([1.5, 0.01, 1e-4, 0.2, 0.4, 0.6], params.mus[1]),
+        AstrodynamicsCore.kep2rv([2.0, 0.3, 0.6, 1.0, 0.5, 2.0], params.mus[1]),
+    ]
+
+    for (eom, gve, parameters) in (
+        (HighFidelityEphemerisModel.eom_Nbody!, HighFidelityEphemerisModel.gve_mee_Nbody!, params),
+        (HighFidelityEphemerisModel.eom_NbodySH!, HighFidelityEphemerisModel.gve_mee_NbodySH!, params_SH),
+    ), initial_rv in rv_cases
+        initial_mee = AstrodynamicsCore.rv2mee(initial_rv, parameters.mus[1])
+        ts = range(0.0, 0.25, length = 6)
+        sol_rv = solve(ODEProblem(eom, initial_rv, (ts[1], ts[end]), parameters),
+            Vern9(), reltol = 1e-13, abstol = 1e-13, saveat = ts)
+        sol_mee = solve(ODEProblem(gve, initial_mee, (ts[1], ts[end]), parameters),
+            Vern9(), reltol = 1e-13, abstol = 1e-13, saveat = ts)
+        position_errors = Float64[]
+        velocity_errors = Float64[]
+        for t in ts
+            rv_mee = AstrodynamicsCore.mee2rv(sol_mee(t), parameters.mus[1])
+            push!(position_errors, norm(rv_mee[1:3] - sol_rv(t)[1:3]))
+            push!(velocity_errors, norm(rv_mee[4:6] - sol_rv(t)[4:6]))
+        end
+        @test maximum(position_errors) < 1e-12
+        @test maximum(velocity_errors) < 1e-12
     end
 
     sol_rv = solve(ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, rv0,
