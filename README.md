@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
+  <img src="docs/src/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
 </p>
 
 
