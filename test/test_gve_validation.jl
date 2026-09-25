@@ -1,4 +1,10 @@
-"""Test shared-domain and formulation-domain GVE propagation."""
+"""Test shared-domain and formulation-domain GVE propagation.
+
+Test 1: One elliptic case where all three GVE formulations work and can be compared against Cartesian.
+Test 2: propagation along L2 1072 Vertical orbit, where the formulations have different validity limits. 
+MEE works for the full case, ordinary equinoctial is not valid because the initial eccentricity is greater than 1,
+     and classical Keplerian is stopped near its e = 1 limit.
+"""
 
 using AstrodynamicsCore
 using LinearAlgebra
