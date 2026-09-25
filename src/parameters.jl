@@ -254,6 +254,8 @@ function _make_ephemerides_backend(ephemerides_provider, ephemerides_files, ephe
         error("EphemeridesParameters require `ephemerides_provider`, `ephemerides_files`, or `ephemerides_frame_system`.")
     end
 
+    ensure_ephemerides_thread_caches!(ephemerides_provider)
+
     if isnothing(ephemerides_frame_system)
         ephemerides_frame_system = build_ephemerides_frame_system(ephemerides_provider, frame_PCPF)
     end

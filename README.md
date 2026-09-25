@@ -1,14 +1,17 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
+  <img src="docs/src/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
 </p>
 
 
 <p align="center">
+  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">
+    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml/badge.svg" alt="docs workflow"/>
+  </a>
   <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml">
     <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml/badge.svg" alt="test workflow"/>
   </a>
-  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">
-    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml/badge.svg" alt="docs workflow"/>
+  <a href="https://app.codecov.io/gh/Yuricst/HighFidelityEphemerisModel.jl">
+    <img src="https://codecov.io/gh/Yuricst/HighFidelityEphemerisModel.jl/branch/main/graph/badge.svg" alt="codecov"/>
   </a>
   <!-- <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a> -->
 </p>

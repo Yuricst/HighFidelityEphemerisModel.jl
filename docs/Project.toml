@@ -11,4 +11,4 @@ HighFidelityEphemerisModel = {path = ".."}
 [compat]
 AstrodynamicsCore = "0.1"
 Documenter = "1"
-julia = "1.10"
+julia = "1.12"
