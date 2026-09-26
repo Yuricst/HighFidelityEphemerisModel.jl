@@ -1,5 +1,6 @@
 module HighFidelityEphemerisModel
 
+using AstrodynamicsCore
 using Ephemerides
 using FrameTransformations
 using Dierckx
@@ -30,6 +31,7 @@ include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
 include("eoms/eom_NbodySH_Ephemerides.jl")
 include("eoms/eom_dispatch.jl")
+include("eoms/gve.jl")
 
 include("events.jl")
 include("spk/utils.jl")
@@ -49,6 +51,11 @@ export HighFidelityEphemerisModelParameters, AbstractHFEMParameters
 export SpiceParameters, InterpParameters, EphemeridesParameters, EphemeridesBackend
 
 export eom_Nbody!, eom_Nbody, eom_NbodySH!, eom_NbodySH
+export pxform_inr2rtn, pxform_rtn2inr, project_inr_to_rtn!
+export gve_mee_derivs!, gve_mee_Nbody!, gve_mee_Nbody, gve_mee_NbodySH!, gve_mee_NbodySH
+export eom_kep_twobody!, eom_kep_twobody
+export gve_kep_derivs!, gve_kep_Nbody!, gve_kep_Nbody, gve_kep_NbodySH!, gve_kep_NbodySH
+export gve_eq_derivs!, gve_eq_Nbody!, gve_eq_Nbody, gve_eq_NbodySH!, gve_eq_NbodySH
 export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE!, eom_stm_Nbody_SPICE_fd!
 export eom_Nbody_Interp!, eom_Nbody_Interp, eom_stm_Nbody_Interp!, eom_stm_Nbody_Interp_fd!
 export eom_Nbody_Ephemerides!, eom_Nbody_Ephemerides, eom_stm_Nbody_Ephemerides!, eom_stm_Nbody_Ephemerides_fd!
