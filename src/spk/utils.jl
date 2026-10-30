@@ -3,6 +3,10 @@
 using Printf: @printf
 
 
+# =============================================================================
+# Small internal helpers
+# =============================================================================
+
 function _get_et0_from_parameters(parameters)
     return _property_first(parameters, (:et0, :ET0, :epoch0, :epoch_et0, :et_start, :t0_et))
 end
@@ -53,26 +57,25 @@ function _print_spk_pipeline_summary(; output_spk, maneuver_txt, ocp_maneuver_tx
 
     println()
     println("SPK generation complete")
-    println("  segments              : ", segment_count)
-    println("  SPK                   : ", _display_path(output_spk))
-    maneuver_txt !== nothing && println("  trajectory maneuvers  : ", _display_path(maneuver_txt))
-    ocp_maneuver_txt !== nothing && println("  OCP maneuvers         : ", _display_path(ocp_maneuver_txt))
-    metadata_json !== nothing && println("  metadata JSON         : ", _display_path(metadata_json))
-    intermediate_dir !== nothing && println("  intermediates         : ", _display_path(intermediate_dir))
+    println("  segments                    : ", segment_count)
+    println("  SPK                         : ", _display_path(output_spk))
 
-    jump_total = _summary_get(maneuver_summary, "total_delta_v_mps")
-    if jump_total !== nothing
-        @printf("  Δv from traj. jumps   : %.6e m/s\n", jump_total)
+    # The OCP maneuver file is the primary maneuver product when it exists.
+    # The reconstructed trajectory-jump file is only a secondary diagnostic.
+    if maneuver_txt !== nothing
+        println("  maneuvers                   : ", _display_path(maneuver_txt))
     end
+    if ocp_maneuver_txt !== nothing && ocp_maneuver_txt != maneuver_txt
+        println("  OCP maneuvers               : ", _display_path(ocp_maneuver_txt))
+    end
+
+    metadata_json !== nothing && println("  metadata JSON               : ", _display_path(metadata_json))
+    intermediate_dir !== nothing && println("  intermediates               : ", _display_path(intermediate_dir))
 
     ocp_scalar = _summary_get(ocp_control_summary, "total_control_scalar_mps")
     if ocp_scalar !== nothing
-        @printf("  Δv from OCP scalar    : %.6e m/s\n", ocp_scalar)
-    end
-
-    ocp_vec = _summary_get(ocp_control_summary, "total_control_vector_norm_mps")
-    if ocp_vec !== nothing
-        @printf("  Δv from OCP vectors   : %.6e m/s\n", ocp_vec)
+        @printf("  total control (OCP scalar)  : %.6e m/s
+", ocp_scalar)
     end
 
     return nothing
@@ -182,6 +185,10 @@ function _write_json_string(io, s::AbstractString)
 end
 
 
+# =============================================================================
+# Utility helpers
+# =============================================================================
+
 function list_segment_state_files(states_dir::AbstractString)
     files = filter(f -> occursin(r"^seg_\d{3}_states\.txt$", f), readdir(states_dir))
     sort!(files)
@@ -248,11 +255,11 @@ function _make_spk_pipeline_workdir(output_spk_abs::AbstractString, intermediate
 end
 
 """
-    _mkspk_path(path)
+    _tool_path(path)
 
-Convert a path to the slash-separated format expected by MKSPK setup files.
+Convert a path to a slash-separated string.
 """
-function _mkspk_path(path::AbstractString)
-    # MKSPK setup files are easier to read and usually safer with forward slashes.
+function _tool_path(path::AbstractString)
+    # Forward slashes are easier to read and portable in generated text products.
     return replace(String(path), "\\" => "/")
 end

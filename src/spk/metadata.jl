@@ -6,12 +6,6 @@
 
 Build metadata for the generated SPK, including force-model information,
 NAIF frame, coverage windows, time/scaling units, and maneuver-file metadata.
-
-# Arguments
-- `output_spk::AbstractString`: generated BSP file path
-- `epoch_ranges`: vector of segment coverage windows in seconds past J2000
-- `parameters`: optional model/scaling object used for metadata extraction
-- `force_model_metadata`: optional explicit force-model metadata dictionary
 """
 function build_spk_metadata(;
     output_spk::AbstractString,
@@ -43,6 +37,8 @@ function build_spk_metadata(;
     merge_maneuvers_into_metadata::Bool = false,
     merge_ocp_maneuvers_into_metadata::Bool = false,
 )
+    # Store coverage per SPK segment so downstream validation/visualization
+    # can reproduce the exact windows written to the BSP.
     windows = Any[]
     for (idx, epoch_range) in enumerate(epoch_ranges)
         entry = Dict{String,Any}(
@@ -72,39 +68,59 @@ function build_spk_metadata(;
         infer_force_model_metadata(parameters) :
         _json_safe(force_model_metadata)
 
-    maneuver_metadata = Dict{String,Any}(
+    # Trajectory-jump maneuvers are diagnostic values inferred from adjacent
+    # ODE arcs. They are not treated as the primary station-keeping cost product.
+    trajectory_jump_metadata = Dict{String,Any}(
         "file" => maneuver_file === nothing ? nothing : abspath(String(maneuver_file)),
         "units" => "m/s",
         "format" => "ETSECONDS,DVX_mps,DVY_mps,DVZ_mps",
+        "type" => "trajectory_jump_diagnostic",
+        "is_primary" => false,
         "cost_convention" => "sum(norm.(dv_i))",
         "merged_into_metadata" => merge_maneuvers_into_metadata,
     )
 
     if maneuver_summary !== nothing
-        _deep_merge_dicts!(maneuver_metadata, _json_safe(maneuver_summary))
-    end
-
-    if ocp_control_summary !== nothing
-        ocp_meta = _json_safe(ocp_control_summary)
-        ocp_meta["file"] = ocp_control_file === nothing ? nothing : abspath(String(ocp_control_file))
-        ocp_meta["merged_into_metadata"] = merge_ocp_maneuvers_into_metadata
-        if merge_ocp_maneuvers_into_metadata
-            ocp_meta["entries"] = ocp_control_entries === nothing ? Any[] : _json_safe(ocp_control_entries)
-        end
-        maneuver_metadata["ocp_control"] = ocp_meta
+        _deep_merge_dicts!(trajectory_jump_metadata, _json_safe(maneuver_summary))
     end
 
     if merge_maneuvers_into_metadata
-        maneuver_metadata["entries"] = maneuver_entries === nothing ? Any[] : _json_safe(maneuver_entries)
+        trajectory_jump_metadata["entries"] = maneuver_entries === nothing ? Any[] : _json_safe(maneuver_entries)
     end
 
+    if ocp_control_summary !== nothing
+        # When OCP/executed controls are supplied, make that the primary
+        # maneuver summary. The trajectory-jump diagnostic stays nested below.
+        maneuver_metadata = _json_safe(ocp_control_summary)
+        maneuver_metadata["file"] = ocp_control_file === nothing ? nothing : abspath(String(ocp_control_file))
+        maneuver_metadata["units"] = "m/s"
+        maneuver_metadata["type"] = "ocp_control"
+        maneuver_metadata["is_primary"] = true
+        maneuver_metadata["primary_cost_key"] = haskey(maneuver_metadata, "total_control_scalar_mps") ?
+            "total_control_scalar_mps" : "total_control_vector_norm_mps"
+        maneuver_metadata["cost_convention"] = haskey(maneuver_metadata, "cost_convention_scalar") ?
+            maneuver_metadata["cost_convention_scalar"] : get(maneuver_metadata, "cost_convention_vector_norm", nothing)
+        maneuver_metadata["merged_into_metadata"] = merge_ocp_maneuvers_into_metadata
+        maneuver_metadata["trajectory_jumps"] = trajectory_jump_metadata
+
+        if merge_ocp_maneuvers_into_metadata
+            maneuver_metadata["entries"] = ocp_control_entries === nothing ? Any[] : _json_safe(ocp_control_entries)
+        end
+    else
+        maneuver_metadata = trajectory_jump_metadata
+        maneuver_metadata["is_primary"] = true
+    end
+
+    # The top-level product path should point to the primary maneuver file.
+    primary_maneuver_file = ocp_control_file !== nothing ? ocp_control_file : maneuver_file
     meta = Dict{String,Any}(
         "schema" => "HighFidelityEphemerisModel.SPKMetadata.v1",
         "generated_unix_time_sec" => time(),
         "products" => Dict{String,Any}(
             "spk_file" => abspath(output_spk),
-            "maneuver_file" => maneuver_file === nothing ? nothing : abspath(String(maneuver_file)),
+            "maneuver_file" => primary_maneuver_file === nothing ? nothing : abspath(String(primary_maneuver_file)),
             "ocp_maneuver_file" => ocp_control_file === nothing ? nothing : abspath(String(ocp_control_file)),
+            "trajectory_jump_maneuver_file" => maneuver_file === nothing ? nothing : abspath(String(maneuver_file)),
             "metadata_json" => metadata_json === nothing ? nothing : abspath(String(metadata_json)),
         ),
         "spk" => Dict{String,Any}(
@@ -147,6 +163,8 @@ end
 Write metadata as JSON without adding a package dependency.
 """
 function write_spk_metadata_json(path::AbstractString, metadata)
+    # Use the local JSON writer so tuple/named-tuple values from Julia objects
+    # are serialized consistently without adding a new dependency here.
     open(path, "w") do io
         _write_json_value(io, _json_safe(metadata), 0)
         println(io)
@@ -189,6 +207,12 @@ function infer_force_model_metadata(parameters)
 end
 
 
+"""
+    _build_force_model_keyword_metadata(; kwargs...)
+
+Build a small force-model dictionary from high-level keyword arguments. This is
+merged into the inferred or user-supplied metadata dictionary.
+"""
 function _build_force_model_keyword_metadata(;
     dynamics_name = nothing,
     srp_enabled = nothing,

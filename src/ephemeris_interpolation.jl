@@ -107,4 +107,3 @@ function get_state(ephem::InterpolatedEphemeris, et::Float64)
             Dierckx.evaluate(ephem.splines[5], et_eval),
             Dierckx.evaluate(ephem.splines[6], et_eval)]
 end
-

@@ -32,7 +32,7 @@ nmax = 4
 
 f_density = HighFidelityEphemerisModel.harris_priester_f_density(R_earth_km; use_min=true)
 
-parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+parameters = HighFidelityEphemerisModel.SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -46,7 +46,7 @@ parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
 kep0 = [(DU+250)/DU, 1e-3, deg2rad(50), deg2rad(100), deg2rad(200), deg2rad(300)]
 x0_earth = AstrodynamicsCore.kep2rv(kep0, parameters.mus[1])
 tspan = (0.0, 3 * 86400 / parameters.TU)
-ode = ODEProblem(HighFidelityEphemerisModel.eom_Nbody_SPICE!, x0_earth, tspan, parameters)
+ode = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0_earth, tspan, parameters)
 
 # detect hitting min altitude
 function condition(u, t, integrator) # Event when condition(u,t,integrator) == 0
@@ -82,5 +82,7 @@ ax_traj = Axis3(fig_elements[1:2,4:7]; xlabel="x, km", ylabel="y, km", zlabel="z
     xticklabelsize = fontsize, yticklabelsize = fontsize, zticklabelsize = fontsize)
 lines!(ax_traj, Array(sol)[1,:], Array(sol)[2,:], Array(sol)[3,:], color=:blue)
 
-save(joinpath(@__DIR__, "plots", "demo_drag.png"), fig_elements; px_per_unit=2)
-display(fig_elements)
+plots_dir = joinpath(@__DIR__, "plots")
+mkpath(plots_dir)
+save(joinpath(plots_dir, "demo_drag.png"), fig_elements; px_per_unit=2)
+isinteractive() && display(fig_elements)

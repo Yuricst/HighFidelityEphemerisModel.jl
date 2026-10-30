@@ -1,13 +1,14 @@
 module HighFidelityEphemerisModel
 
+using AstrodynamicsCore
+using Ephemerides
+using FrameTransformations
 using Dierckx
 using ForwardDiff
 using Interpolations
 using LinearAlgebra
 using Printf
 using SPICE
-import SparseDiffTools
-import Symbolics
 
 include("utils.jl")
 include("perturbations/third_body.jl")
@@ -19,20 +20,23 @@ include("perturbations/jacchiaroberts.jl")
 
 include("ephemeris_interpolation.jl")
 include("transformation_interpolation.jl")
+include("ephemerides.jl")
 include("parameters.jl")
-include("jacobians_symbolic.jl")
-include("jacobians_sparsediff.jl")
 
 include("eoms/eom_Nbody_SPICE.jl")
 include("eoms/eom_Nbody_Interp.jl")
+include("eoms/eom_Nbody_Ephemerides.jl")
 
 include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
+include("eoms/eom_NbodySH_Ephemerides.jl")
+include("eoms/eom_dispatch.jl")
+include("eoms/gve.jl")
 
 include("events.jl")
 include("spk/utils.jl")
 include("spk/states.jl")
-include("spk/mkspk.jl")
+include("spk/spkw13.jl")
 include("spk/maneuvers.jl")
 include("spk/metadata.jl")
 include("spk/incremental.jl")
@@ -42,15 +46,24 @@ export eom_jacobian_fd, eom_hessian_fd, et_to_utc_mjd
 
 export InterpolatedEphemeris
 export InterpolatedTransformation
-export HighFidelityEphemerisModelParameters
+export get_pos_ephemerides, get_state_ephemerides, pxform_ephemerides
+export HighFidelityEphemerisModelParameters, AbstractHFEMParameters
+export SpiceParameters, InterpParameters, EphemeridesParameters, EphemeridesBackend
 
+export eom_Nbody!, eom_Nbody, eom_NbodySH!, eom_NbodySH
+export pxform_inr2rtn, pxform_rtn2inr, project_inr_to_rtn!
+export gve_mee_derivs!, gve_mee_Nbody!, gve_mee_Nbody, gve_mee_NbodySH!, gve_mee_NbodySH
+export eom_kep_twobody!, eom_kep_twobody
+export gve_kep_derivs!, gve_kep_Nbody!, gve_kep_Nbody, gve_kep_NbodySH!, gve_kep_NbodySH
+export gve_eq_derivs!, gve_eq_Nbody!, gve_eq_Nbody, gve_eq_NbodySH!, gve_eq_NbodySH
 export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE!, eom_stm_Nbody_SPICE_fd!
-export eom_Nbody_Interp!, eom_Nbody_Interp, dfdx_Nbody_Interp, eom_stm_Nbody_Interp!, eom_stm_Nbody_Interp_fd!
+export eom_Nbody_Interp!, eom_Nbody_Interp, eom_stm_Nbody_Interp!, eom_stm_Nbody_Interp_fd!
+export eom_Nbody_Ephemerides!, eom_Nbody_Ephemerides, eom_stm_Nbody_Ephemerides!, eom_stm_Nbody_Ephemerides_fd!
 
 export eom_NbodySH_SPICE!, eom_NbodySH_SPICE, eom_stm_NbodySH_SPICE_fd!
 export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
+export eom_NbodySH_Ephemerides!, eom_NbodySH_Ephemerides, eom_stm_NbodySH_Ephemerides_fd!
 
-export set_sparse_jacobian_cache!
 export get_trueanomaly_event
 export HarrisPriesterModel, harris_priester_f_density
 export JacchiaRobertsModel, jacchia_roberts_f_density, JacchiaRobertsGeomagneticExposphericParams

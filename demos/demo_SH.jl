@@ -30,7 +30,7 @@ et0 = str2et("2026-01-05T00:00:00")
 filepath_spherical_harmonics = joinpath(@__DIR__, "../data/earth/GGM03S.tab")
 nmax = 4
 
-parameters = HighFidelityEphemerisModel.HighFidelityEphemerisModelParameters(
+parameters = HighFidelityEphemerisModel.SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -44,7 +44,7 @@ period = 2π * sqrt(8000^3/GMs[1])
 
 # propagate 
 tspan = (0.0, 10 * period)
-ode = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH_SPICE!, rv0, tspan, parameters)
+ode = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, rv0, tspan, parameters)
 sol = solve(ode, Tsit5(), reltol=1e-11, abstol=1e-12)
 
 # elements history
@@ -64,4 +64,7 @@ end
 # ax_inr = Axis3(fig[1,1]; aspect=:data, xlabel="x, km", ylabel="y, km", zlabel="z, km")
 # lines!(ax_inr, sol.u[1, :], sol.u[2, :], sol.u[3, :], color=:blue)
 
-display(fig_elements)
+plots_dir = joinpath(@__DIR__, "plots")
+mkpath(plots_dir)
+save(joinpath(plots_dir, "demo_SH.png"), fig_elements; px_per_unit=2)
+isinteractive() && display(fig_elements)

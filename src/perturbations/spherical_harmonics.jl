@@ -174,6 +174,15 @@ function spherical_harmonics_accel(
 end
 
 
+function spherical_harmonics_normalization_scale(n::Int, m::Int, k::Int)
+    factorial_ratio = BigFloat(1)
+    for i = (n - m + 1):(n + m)
+        factorial_ratio *= BigFloat(i)
+    end
+    return sqrt(factorial_ratio / (BigFloat(k) * BigFloat(2*n + 1)))
+end
+
+
 function load_spherical_harmonics(
     filepath::String,
     nmax::Int,
@@ -220,8 +229,9 @@ function load_spherical_harmonics(
                 end
 
                 # undo normalization, c.f. Montenbruck & Gill pg. 58 eqn (3.13)
-                spherical_harmonics_data["Cnm"][n,m] = C / sqrt(factorial_alias(n+m)/(k*(2*n+1)*factorial_alias(n-m)));
-                spherical_harmonics_data["Snm"][n,m] = S / sqrt(factorial_alias(n+m)/(k*(2*n+1)*factorial_alias(n-m)));
+                normalization_scale = spherical_harmonics_normalization_scale(n, m, k)
+                spherical_harmonics_data["Cnm"][n,m] = C / normalization_scale;
+                spherical_harmonics_data["Snm"][n,m] = S / normalization_scale;
             else
                 error("Normalization not supported")
             end

@@ -15,6 +15,42 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
     STM_tf   = reshape(sol.u[end][7:42],6,6)    # final 6-by-6 STM
     ```
 
+## Propagation formulations
+
+Cartesian propagation is the general/default HFEM formulation and has no
+orbital-element coordinate singularities. HFEM also provides Gauss variational
+equations (GVE) that reuse the same Cartesian force models.
+
+Cartesian coordinates do not remove physical force-model singularities. The
+point-mass model remains singular at zero central-body distance and when the
+spacecraft coincides with another point-mass gravitating body.
+
+| Formulation | State ordering | Domain and intended use |
+|---|---|---|
+| Cartesian | `[x, y, z, vx, vy, vz]` | Broadest robustness and generality; no orbital-element coordinate singularities. |
+| Modified equinoctial (MEE) | `[p, f, g, h, k, L]` | Elliptic, parabolic, and hyperbolic states, including crossings of `e = 1`; the standard prograde chart is singular exactly at `i = pi`. |
+| Classical Keplerian | `[a, e, i, Omega, omega, true_anomaly]` | Useful for completeness, reference, validation, and restricted-domain applications; singular for circular and equatorial states and ill-conditioned at `e = 1`, which it cannot cross smoothly. |
+| Ordinary equinoctial | `[a, f, g, h, k, lambda]` | Elliptic-only (`a > 0`, `e < 1`); regular at circular and prograde-equatorial states but singular exactly at `i = pi`. |
+| Keplerian two-body | `[a, e, i, Omega, omega, true_anomaly]` | Reference, validation, simplified analysis, and practical central-body-dominated propagation. |
+
+Ordinary equinoctial elements are useful for bound satellites, debris,
+asteroids, planets, and other elliptic-orbit applications. In optimization,
+however, an intermediate iterate can become hyperbolic even when the desired
+solution is elliptic; this representation is restrictive unless the iterate
+domain is controlled.
+
+The two-body model can be an appropriate approximation when one central body
+dominates, including some low-thrust interplanetary cruise phases. Use N-body
+gravity when multiple bodies have meaningful influence, and spherical
+harmonics when point-mass gravity is inadequate near a nonspherical body.
+
+For every GVE force model, HFEM reconstructs Cartesian position and velocity,
+evaluates the corresponding existing inertial Cartesian EOM, removes the
+central two-body acceleration, projects the total remaining perturbation once
+into RTN, and applies the selected variational equations. See
+[Gauss variational equations](@ref) for examples and detailed limitations.
+Third-body accelerations are not evaluated directly in RTN.
+
 ## Dynamics model
 
 In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravitational term, together with the following perturbations:
@@ -179,27 +215,40 @@ The pre-computed coefficient $k_{\mathrm{drag}}$ absorbs $\tfrac{1}{2} C_d (A/m)
 ```
 
 
-## List of equations of motion in `HighFidelityEphemerisModel.jl`
+## Parameters and equations of motion
 
-The table below summarizes the equations of motion. Note: 
+Backends are selected by the parameter type:
+
+- `SpiceParameters`: query SPICE at runtime
+- `EphemeridesParameters`: use Ephemerides.jl/FrameTransformations.jl at runtime
+- `InterpParameters`: use pre-interpolated ephemerides and transformations
+
+The preferred EOM names are generic and dispatch on the parameter type:
+
+- `eom_Nbody!` / `eom_Nbody`
+- `eom_NbodySH!` / `eom_NbodySH`
+
+The compatibility constructor `HighFidelityEphemerisModelParameters(...)` remains available only for backward compatibility and returns one of the concrete parameter types based on the supplied backend inputs.
+
+Backend-specific names (`eom_Nbody_SPICE!`, `eom_Nbody_Interp!`, `eom_Nbody_Ephemerides!`, `eom_NbodySH_SPICE!`, `eom_NbodySH_Interp!`, `eom_NbodySH_Ephemerides!`) remain available for compatibility and backend-specific tests.
+
+The table below summarizes the models. Note:
 
 - `Nbody`: central gravity term + third-body perturbations ($\boldsymbol{a}_{\mathrm{3bd},i}$), optional SRP and drag
 - `NbodySH`: central gravity term + third-body perturbations + spherical harmonics perturbations up to `nmax` degree ($\boldsymbol{a}_{\mathrm{SH},n_{\max}}$), optional SRP and drag
-- The STM is integrated with the Jacobian, which is computed either analytically (using symbolic derivative) or via `ForwardDiff` (functions containing `_fd`)
+- The STM is integrated with the Jacobian, which is computed via `ForwardDiff` (functions containing `_fd`)
 
-| eom                   | eom + STM (analytical)  | eom + STM (ForwardDiff)      | `EnsembleThreads` compatibility |
-|-----------------------|-------------------------|------------------------------|---------------------------------|
-| `eom_Nbody_SPICE!`    | `eom_stm_Nbody_SPICE!`  | `eom_stm_Nbody_SPICE_fd!`    | no                              |
-| `eom_Nbody_Interp!`   | `eom_stm_Nbody_Interp!` | `eom_stm_Nbody_Interp_fd!`   | yes                             |
-| `eom_NbodySH_SPICE!`  |                         | `eom_stm_NbodySH_SPICE_fd!`  | no                              |
-| `eom_NbodySH_Interp!` |                         | `eom_stm_NbodySH_Interp_fd!` | yes                             |
+| Parameters | Translational EOM | STM EOM | `EnsembleThreads` compatibility | Notes |
+|------------|-------------------|---------|---------------------------------|-------|
+| `SpiceParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_SPICE_fd!`, `eom_stm_NbodySH_SPICE_fd!` | no | direct SPICE calls |
+| `EphemeridesParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Ephemerides_fd!`, `eom_stm_NbodySH_Ephemerides_fd!` | yes | preferred non-SPICE backend |
+| `InterpParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Interp_fd!`, `eom_stm_NbodySH_Interp_fd!` | yes | legacy compatibility backend |
 
 
 !!! note
 
-    In order to use Julia's dual numbers, make sure to use a function that does not contain SPICE calls (i.e. use ones with `_interp` in the name); this is enabled by interpolating ahead of time ephemerides/transformation matrices.
+    In order to use Julia's dual numbers, use `EphemeridesParameters` or `InterpParameters`, which avoid direct SPICE calls inside the EOM.
 
 !!! warning
 
-    The accuracy of interpolated equations of motion (with `_interp` in the name) depends on the `interpolation_time_step`; if high-accuracy integration is required, it is advised to directly use the equations of motion that internally call SPICE (i.e. with `_SPICE` in the name)
-
+    The `_Interp` backend is retained as a legacy/temporary compatibility path. Its accuracy depends on `interpolation_time_step`; for new non-SPICE workflows, prefer `EphemeridesParameters`.
