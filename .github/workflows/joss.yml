@@ -7,11 +7,16 @@ on:
       - paper
     paths:
       - "paper/**"
+      - "!paper/paper.pdf"
       - ".github/workflows/joss.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: joss-paper-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   paper:
@@ -29,10 +34,24 @@ jobs:
           journal: joss
           paper-path: paper/paper.md
 
-      - name: Upload PDF
+      - name: Upload PDF artifact
         uses: actions/upload-artifact@v7
         with:
-          name: HFEM-JOSS-Draft
           path: paper/paper.pdf
           archive: false
           if-no-files-found: error
+
+      - name: Commit generated PDF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add paper/paper.pdf
+
+          if git diff --cached --quiet; then
+            echo "PDF is unchanged."
+            exit 0
+          fi
+
+          git commit -m "docs: update JOSS draft PDF"
+          git push origin HEAD:paper
