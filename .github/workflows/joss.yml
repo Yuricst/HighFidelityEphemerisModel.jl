@@ -1,0 +1,38 @@
+
+name: JOSS Draft PDF
+
+on:
+  push:
+    branches:
+      - paper
+    paths:
+      - "paper/**"
+      - ".github/workflows/joss.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paper:
+    name: Build JOSS Paper
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Build draft PDF
+        uses: openjournals/openjournals-draft-action@master
+        with:
+          journal: joss
+          paper-path: paper/paper.md
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v7
+        with:
+          name: HFEM-JOSS-Draft
+          path: paper/paper.pdf
+          archive: false
+          if-no-files-found: error

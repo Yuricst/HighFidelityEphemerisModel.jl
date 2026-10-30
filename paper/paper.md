@@ -1,23 +1,25 @@
 ---
 title: 'HighFidelityEphemerisModel.jl: a Julia package for High-fidelity astrodynamics'
 tags:
-  - Python
-  - astronomy
-  - dynamics
-  - galactic dynamics
-  - milky way
+  - Julia
+  - astrodynamics
+  - orbital mechanics
+  - spacecraft dynamics
+  - ephemerides
+  - orbit propagation
 authors:
   - name: Yuri Shimane
     orcid: 0000-0001-7728-3780
     corresponding: true # (This is how to denote the corresponding author)  
     affiliation: 1 # (Multiple affiliations must be quoted)
-  - name: Author Without ORCID
+  - name: Derek Phung
+    orcid: 0009-0002-3063-5595
     affiliation: 1
 affiliations:
  - name: Department of Mechanical and Aerospace Engineering, University of California, Irvine, United States
    index: 1
    ror: 04gyf1771
-date: 03 August 2026
+date: 30 October 2026
 bibliography: paper.bib
 ---
 
