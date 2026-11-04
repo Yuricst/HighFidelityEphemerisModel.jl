@@ -89,9 +89,13 @@ end
 """
     et_to_utc_mjd(et)
 
-Convert ephemeris time (seconds past J2000) to UTC modified Julian date.
+Convert ephemeris time (TDB seconds past J2000) to UTC modified Julian date.
+
+Uses SPICE `deltet` (requires a leapseconds kernel). The fraction of day is
+computed with 86400 s days, i.e. leap-second days are not stretched.
 """
 function et_to_utc_mjd(et::Real)
-    jd = unitim(float(et), "ET", "JDTDB")
-    return jd - 2400000.5
+    et_f = float(et)
+    utc_sec = et_f - deltet(et_f, "ET")     # UTC seconds past J2000 (2000-01-01T12:00:00 UTC)
+    return 51544.5 + utc_sec / 86400.0
 end

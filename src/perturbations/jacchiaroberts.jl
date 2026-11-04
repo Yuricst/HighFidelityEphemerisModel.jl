@@ -157,13 +157,18 @@ function _jr_compute_roots(tx::Real)
     aux[1, 2] = 0.0
     _roots!(c_star, aux, 1)
     root1 = aux[1, 1]
+    # Deflate degree 4 -> 3; `_roots!` infers the degree from the vector length,
+    # so the quotient must be truncated (GMAT passes the reduced degree explicitly).
     _deflate_polynomial!(c_star, root1, c_star)
+    c_star = c_star[1:4]
 
     aux[1, 1] = 200.0
     aux[1, 2] = 0.0
     _roots!(c_star, aux, 1)
     root2 = aux[1, 1]
+    # Deflate degree 3 -> 2
     _deflate_polynomial!(c_star, root2, c_star)
+    c_star = c_star[1:3]
 
     aux[1, 1] = 10.0
     aux[1, 2] = 125.0
@@ -195,8 +200,9 @@ function _geodetic_lon_lat_alt(r_km::AbstractVector{<:Real}, Re::Real, flat::Rea
     theta = atan(Re * z, Rp * p)
     sin_theta = sin(theta)
     cos_theta = cos(theta)
+    ep2 = e2 / (1 - e2)   # second eccentricity squared, e'^2
     lat = atan(
-        z + e2 * Rp * sin_theta^3,
+        z + ep2 * Rp * sin_theta^3,
         p - e2 * Re * cos_theta^3,
     )
     sin_lat = sin(lat)

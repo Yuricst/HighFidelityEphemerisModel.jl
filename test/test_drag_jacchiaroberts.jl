@@ -53,11 +53,12 @@ end
 
 
 function test_jacchia_roberts_regression()
+    # reference values use the UTC-based MJD (et_to_utc_mjd via deltet)
     et = str2et("2020-01-01T00:00:00")
     f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density()
-    @test f_density(et, _pcpf_position(et, 200.0)) ≈ 3.0708677711266465e-10 rtol=1e-6
-    @test f_density(et, _pcpf_position(et, 400.0)) ≈ 5.591753480974712e-12 rtol=1e-6
-    @test f_density(et, _pcpf_position(et, 800.0)) ≈ 2.5775215118405146e-14 rtol=1e-6
+    @test f_density(et, _pcpf_position(et, 200.0)) ≈ 3.0708716391170484e-10 rtol=1e-6
+    @test f_density(et, _pcpf_position(et, 400.0)) ≈ 5.591768363368083e-12 rtol=1e-6
+    @test f_density(et, _pcpf_position(et, 800.0)) ≈ 2.5775317271832244e-14 rtol=1e-6
 end
 
 
@@ -149,7 +150,50 @@ function test_jacchia_roberts_eom_stm(; verbose=false)
 end
 
 
+# Below 125 km the model uses the roots of a quartic in altitude; check that the
+# 100-125 km branch is continuous with the >125 km branch and monotone.
+function test_jacchia_roberts_low_altitude()
+    H = HighFidelityEphemerisModel
+    rho_below = H.JacchiaRobertsModel(125.0 - 1e-6)
+    rho_above = H.JacchiaRobertsModel(125.0 + 1e-6)
+    # the two branches are separate fits; a ~2e-4 relative mismatch at 125 km is inherent
+    @test rho_below ≈ rho_above rtol=1e-3
+    hs = 100.5:0.5:130.0
+    rhos = [H.JacchiaRobertsModel(h) for h in hs]
+    @test all(diff(rhos) .< 0)
+    # order of magnitude vs standard atmospheres (~5e-7 kg/m^3 at 100 km, ~1e-8 at 125 km)
+    @test 2e-7 < H.JacchiaRobertsModel(101.0) < 1e-6
+    @test 5e-9 < H.JacchiaRobertsModel(124.9) < 3e-8
+
+    # roots of the deflated polynomial must also be roots of the original quartic
+    for tx in (300.0, 400.0, 500.0)
+        root1, root2, x_root, y_root = H._jr_compute_roots(tx)
+        c = copy(H._JR_CON_C)
+        c[1] += 1.500625e6 * tx / (tx - H._JR_TZERO)
+        p(z) = sum(c[i] * z^(i - 1) for i in 1:5)
+        scale = sum(abs(c[i]) * 200.0^(i - 1) for i in 1:5)
+        @test abs(p(root1)) / scale < 1e-10
+        @test abs(p(root2)) / scale < 1e-10
+        @test abs(p(complex(x_root, y_root))) / scale < 1e-10
+    end
+end
+
+
+function test_geodetic_conversion()
+    Re = 6378.137
+    flat = 1 / 298.257223563
+    for lat_deg in (-80.0, -45.0, 0.0, 30.0, 45.0, 80.0), alt in (100.0, 400.0)
+        r = georec(deg2rad(20.0), deg2rad(lat_deg), alt, Re, flat)
+        lon, lat, h = HighFidelityEphemerisModel._geodetic_lon_lat_alt(r, Re, flat)
+        @test rad2deg(lat) ≈ lat_deg atol=1e-7
+        @test h ≈ alt atol=1e-5
+    end
+end
+
+
 test_jacchia_roberts_f_density_api()
+test_jacchia_roberts_low_altitude()
+test_geodetic_conversion()
 test_jacchia_roberts_altitude_guard()
 test_jacchia_roberts_regression()
 test_jacchia_roberts_vs_harris_priester()

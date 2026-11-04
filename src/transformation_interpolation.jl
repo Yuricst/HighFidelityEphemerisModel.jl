@@ -23,6 +23,28 @@ end
 
 
 """
+    _unwrap_angles!(angles)
+
+Remove 2π jumps from a sequence of angles in place, so that consecutive samples
+differ by less than π.
+"""
+function _unwrap_angles!(angles::AbstractVector{<:Real})
+    offset = 0.0
+    for i in 2:length(angles)
+        raw_prev = angles[i-1] - offset
+        d = angles[i] - raw_prev
+        if d > π
+            offset -= 2π
+        elseif d < -π
+            offset += 2π
+        end
+        angles[i] += offset
+    end
+    return angles
+end
+
+
+"""
 InterpolatedTransformation struct
 
 # Fields
@@ -72,6 +94,11 @@ struct InterpolatedTransformation
             T = SPICE.pxform(frame_from, frame_to, et)
             euler_angles[:,idx] .= m2eul(T, axis_sequence...)
         end
+        # m2eul returns the first and third angles in [-π, π]; for a rotating body
+        # these wrap by 2π every revolution, which a spline cannot follow.
+        # Unwrap them so the splined histories are continuous.
+        _unwrap_angles!(view(euler_angles, 1, :))
+        _unwrap_angles!(view(euler_angles, 3, :))
         splines = [
             Spline1D(times_input, euler_angles[1,:]; k=spline_order, bc="error"),
             Spline1D(times_input, euler_angles[2,:]; k=spline_order, bc="error"),
@@ -86,12 +113,12 @@ end
 Overload method for showing InterpolatedTransformation
 """
 function Base.show(io::IO, transformation::InterpolatedTransformation)
-    println("Interpolated transformation struct")
-    @printf("    et0           : %s (%1.8f)\n", et2utc(transformation.et_range[1], "ISOC", 3), transformation.et_range[1])
-    @printf("    etf           : %s (%1.8f)\n", et2utc(transformation.et_range[2], "ISOC", 3), transformation.et_range[2])
-    @printf("    frame from    : %s\n", transformation.frame_from)
-    @printf("    frame to      : %s\n", transformation.frame_to)
-    @printf("    axis sequence : %s\n", transformation.axis_sequence)
+    println(io, "Interpolated transformation struct")
+    @printf(io, "    et0           : %s (%1.8f)\n", et2utc(transformation.et_range[1], "ISOC", 3), transformation.et_range[1])
+    @printf(io, "    etf           : %s (%1.8f)\n", et2utc(transformation.et_range[2], "ISOC", 3), transformation.et_range[2])
+    @printf(io, "    frame from    : %s\n", transformation.frame_from)
+    @printf(io, "    frame to      : %s\n", transformation.frame_to)
+    @printf(io, "    axis sequence : %s\n", transformation.axis_sequence)
 end
 
 

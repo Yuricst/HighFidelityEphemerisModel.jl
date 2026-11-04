@@ -33,26 +33,32 @@ function eom_NbodySH_SPICE!(dx, x, params, t)
         end
     end
 
-    if params.include_drag
+    has_SH = !isnothing(params.spherical_harmonics_data)
+    if params.include_drag || has_SH
         et = params.et0 + t * params.TU
-        r_km = SPICE.pxform(params.naif_frame, params.frame_PCPF, et) * x[1:3] * params.DU
+        T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, et)
+    end
+
+    if params.include_drag
+        r_km = T_inr2pcpf * x[1:3] * params.DU
         rho = params.f_density(et, r_km)
         v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
         dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
     end
 
-    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t * params.TU)
-    a_SH = spherical_harmonics_accel(
-        T_inr2pcpf,
-        x[1:3] * params.DU,
-        params.spherical_harmonics_data["Cnm"],
-        params.spherical_harmonics_data["Snm"],
-        params.spherical_harmonics_data["GM"],
-        params.spherical_harmonics_data["REFERENCE RADIUS"],
-        params.spherical_harmonics_data["nmax"],
-        params.factorial_alias,
-    )
-    dx[4:6] += a_SH / (params.VU/params.TU)
+    if has_SH
+        a_SH = spherical_harmonics_accel(
+            T_inr2pcpf,
+            x[1:3] * params.DU,
+            params.spherical_harmonics_data["Cnm"],
+            params.spherical_harmonics_data["Snm"],
+            params.spherical_harmonics_data["GM"],
+            params.spherical_harmonics_data["REFERENCE RADIUS"],
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
+        )
+        dx[4:6] += a_SH / (params.VU/params.TU)
+    end
     return nothing
 end
 
@@ -88,26 +94,32 @@ function eom_NbodySH_SPICE(x, params, t)
         end
     end
 
-    if params.include_drag
+    has_SH = !isnothing(params.spherical_harmonics_data)
+    if params.include_drag || has_SH
         et = params.et0 + t * params.TU
-        r_km = SPICE.pxform(params.naif_frame, params.frame_PCPF, et) * x[1:3] * params.DU
+        T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, et)
+    end
+
+    if params.include_drag
+        r_km = T_inr2pcpf * x[1:3] * params.DU
         rho = params.f_density(et, r_km)
         v_atm = atmospheric_velocity(x[1:3], params.TU, params.omega_atm)
         dx[4:6] += drag(x[1:3], x[4:6], v_atm, rho, params.k_drag)
     end
 
-    T_inr2pcpf = SPICE.pxform(params.naif_frame, params.frame_PCPF, params.et0 + t * params.TU)
-    a_SH = spherical_harmonics_accel(
-        T_inr2pcpf,
-        x[1:3] * params.DU,
-        params.spherical_harmonics_data["Cnm"],
-        params.spherical_harmonics_data["Snm"],
-        params.spherical_harmonics_data["GM"],
-        params.spherical_harmonics_data["REFERENCE RADIUS"],
-        params.spherical_harmonics_data["nmax"],
-        params.factorial_alias,
-    )
-    dx[4:6] += a_SH / (params.VU/params.TU)
+    if has_SH
+        a_SH = spherical_harmonics_accel(
+            T_inr2pcpf,
+            x[1:3] * params.DU,
+            params.spherical_harmonics_data["Cnm"],
+            params.spherical_harmonics_data["Snm"],
+            params.spherical_harmonics_data["GM"],
+            params.spherical_harmonics_data["REFERENCE RADIUS"],
+            params.spherical_harmonics_data["nmax"],
+            params.factorial_alias,
+        )
+        dx[4:6] += a_SH / (params.VU/params.TU)
+    end
     return dx
 end
 

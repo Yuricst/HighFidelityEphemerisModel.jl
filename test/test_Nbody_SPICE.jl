@@ -116,3 +116,30 @@ end
 
 
 test_eom_stm_Nbody_SPICE(verbose = false)
+
+test_parameters_copy_and_validation = function()
+    naif_ids = ["399", "301", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    parameters = HighFidelityEphemerisModel.SpiceParameters(et0, 6378.0, GMs, naif_ids, "J2000", "NONE")
+
+    # copy: small mutable arrays and scalars are independent of the original
+    p2 = copy(parameters)
+    p2.mus[2] = 0.0
+    p2.u .= 1.0
+    p2.k_srp_cannonball = 123.0
+    @test parameters.mus[2] != 0.0
+    @test all(parameters.u .== 0.0)
+    @test parameters.k_srp_cannonball != 123.0
+
+    # invalid configurations must throw rather than silently drop forces
+    @test_throws ErrorException HighFidelityEphemerisModel.SpiceParameters(
+        et0, 6378.0, GMs[1:2], naif_ids[1:2], "J2000", "NONE"; include_srp = true)
+    @test_throws ErrorException HighFidelityEphemerisModel.SpiceParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE"; include_drag = true, frame_PCPF = "IAU_EARTH")
+    @test_throws ErrorException HighFidelityEphemerisModel.SpiceParameters(
+        et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
+        include_drag = true, f_density = (et, r) -> 0.0)
+end
+
+test_parameters_copy_and_validation()
