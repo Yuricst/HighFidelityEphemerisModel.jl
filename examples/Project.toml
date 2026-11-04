@@ -1,4 +1,5 @@
 [deps]
+AstrodynamicsCore = "5a6b0320-136f-4178-8c7c-d24a6d4b07af"
 HighFidelityEphemerisModel = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -9,6 +10,7 @@ SPICE = "5bab7191-041a-5c2e-a744-024b9c3a5062"
 HighFidelityEphemerisModel = {path = ".."}
 
 [compat]
+AstrodynamicsCore = "0.1"
 JSON = "0.21, 1"
 OrdinaryDiffEq = "6, 7"
 SPICE = "0.2"

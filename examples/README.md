@@ -8,6 +8,7 @@ The tutorial pages are generated from these notebooks when the docs are built.
 |----------|---------|
 | [`basics.ipynb`](basics.ipynb) | Setting up parameters, solving an IVP, and propagating the STM |
 | [`perturbations.ipynb`](perturbations.ipynb) | Third-body gravity, spherical harmonics, SRP, drag, and the different backends |
+| [`gve.ipynb`](gve.ipynb) | Gauss variational equations: propagation in modified equinoctial, Keplerian, and equinoctial elements |
 | [`jacobians_hessians.ipynb`](jacobians_hessians.ipynb) | Finite-difference Jacobians & Hessians of the dynamics |
 | [`ode_sol_to_spk.ipynb`](ode_sol_to_spk.ipynb) | Writing ODE solutions to SPICE SPK (BSP) files, with maneuver & metadata sidecars |
 

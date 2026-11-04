@@ -40,6 +40,23 @@ Pages   = [
 ]
 ```
 
+## [Gauss variational equations](@id gve-api)
+
+The GVE interfaces reuse the Cartesian N-body and N-body+SH force models. See
+the [Gauss variational equations](@ref) tutorial for state conventions and
+formulation domains. The N-body wrappers dispatch on `SpiceParameters`,
+`InterpParameters`, and `EphemeridesParameters`; states, time, acceleration,
+and gravitational parameters use the consistent units defined by the supplied
+parameter object.
+
+```@autodocs
+Modules = [HighFidelityEphemerisModel]
+Order   = [:type, :constant, :function]
+Pages   = [
+    "eoms/gve.jl",
+]
+```
+
 ## Utility routines
 
 ```@autodocs

@@ -1,14 +1,17 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
+  <img src="docs/src/assets/logo.png" alt="HighFidelityEphemerisModel.jl Logo" width="75%"/>
 </p>
 
 
 <p align="center">
+  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">
+    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml/badge.svg" alt="docs workflow"/>
+  </a>
   <a href="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml">
     <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/test.yml/badge.svg" alt="test workflow"/>
   </a>
-  <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">
-    <img src="https://github.com/Yuricst/HighFidelityEphemerisModel.jl/actions/workflows/docs.yml/badge.svg" alt="docs workflow"/>
+  <a href="https://app.codecov.io/gh/Yuricst/HighFidelityEphemerisModel.jl">
+    <img src="https://codecov.io/gh/Yuricst/HighFidelityEphemerisModel.jl/branch/main/graph/badge.svg" alt="codecov"/>
   </a>
   <!-- <a href="https://yuricst.github.io/HighFidelityEphemerisModel.jl/">📚Read the docs📚</a> -->
 </p>
@@ -17,6 +20,7 @@
 
 What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
+- Cartesian and Gauss variational equation propagation using modified equinoctial, classical Keplerian, and ordinary equinoctial elements
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
 - ephemeris interpolation, to define equations of motion compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
 
@@ -24,6 +28,13 @@ What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) implemented (at least for now)
 
 We strive for minimal dependencies (listed in `Project.toml`), consisting of: `Dierckx`, `ForwardDiff`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `SPICE`.
+
+Cartesian propagation remains the general formulation. The GVE interfaces reuse
+the same inertial HFEM force models and are available for N-body and N-body plus
+spherical-harmonic propagation with SPICE, Interp, and Ephemerides parameter
+backends. See the [Gauss variational equations tutorial](examples/gve.ipynb)
+for state conventions, supported domains, examples, and formulation-selection
+guidance.
 
 
 
@@ -109,4 +120,3 @@ x0_stm = [x0; reshape(I(6),36)]
 prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 ```
-

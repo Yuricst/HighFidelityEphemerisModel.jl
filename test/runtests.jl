@@ -54,3 +54,9 @@ if get(ENV, "JULIA_COVERAGE", "") == "true"
         include("coverage.jl")
     end
 end
+
+@testset "Gauss variational EOM  " begin
+    include("test_gve.jl")
+    include("test_gve_eq.jl")
+    include("test_gve_validation.jl")
+end
