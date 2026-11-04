@@ -1,4 +1,5 @@
 [deps]
+AstrodynamicsCore = "5a6b0320-136f-4178-8c7c-d24a6d4b07af"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Dierckx = "39dd38d3-220a-591b-8e3c-4c3a8c710a94"
 Ephemerides = "6a9c3322-c8fe-4c26-8ad6-14a6f8acd2a0"

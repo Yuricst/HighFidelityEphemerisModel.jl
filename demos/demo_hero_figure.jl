@@ -6,7 +6,8 @@ Panels
       backend), with perilune events detected via `get_trueanomaly_event`
   (b) acceleration budget along the NRHO (point mass, third bodies, spherical harmonics, SRP)
   (c) linear covariance propagated with the ForwardDiff-based STM vs. Monte Carlo dispersions
-  (d) lunar spherical-harmonics gravity field, with the NRHO perilune locations from (a)
+  (d) lunar 50x50 spherical-harmonics gravity field (GRGM1200L), with the NRHO perilune
+      locations from (a)
   (e) atmospheric density models (Harris-Priester, Jacchia-Roberts)
   (f) LEO orbit decay under atmospheric drag, terminated by a callback at 120 km
   (g) agreement between ephemeris backends (SPICE / Ephemerides.jl / interpolation) and
@@ -53,8 +54,10 @@ furnsh(joinpath(spice_dir, "fk", "earth_moon_rotating_mc.tf"))
 const NAIF_FRAME = "J2000"
 const ABCORR = "NONE"
 const ROT_FRAME = "EARTHMOONROTATINGMC"     # Moon-centered Earth-Moon rotating frame
-const NMAX = 9                              # lunar SH degree & order
+const NMAX = 9                              # lunar SH degree & order used for propagation
 const SH_MOON = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
+const NMAX_MAP = 50                         # lunar SH degree & order of the gravity map (d)
+const SH_MOON_MAP = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_50x50.tab")
 const R_MOON = 1737.4                       # km, for plotting only
 
 naif_ids = ["301", "399", "10"]
@@ -161,17 +164,23 @@ for t in ts_acc
 end
 
 # ========================================================================================== #
-# (d) lunar gravity field: radial SH acceleration at the reference radius
+# (d) lunar gravity field: gravity disturbance δg = -a_r of the SH field at the reference radius
+#     (positive where gravity is stronger than for a point mass, e.g. over mascons)
 # ========================================================================================== #
-lons = range(-180, 180, length = 181)
-lats = range(-90, 90, length = 91)
-R_ref = shd["REFERENCE RADIUS"]
-g_rad = [begin
-        r̂ = [cosd(φ) * cosd(λ), cosd(φ) * sind(λ), sind(φ)]
-        a = HFEM.spherical_harmonics_accel_PCPF(R_ref * r̂, shd["Cnm"], shd["Snm"], shd["GM"],
-            R_ref, NMAX, p_spice.factorial_alias)
-        dot(a, r̂) * 1e8                    # km/s^2 -> mGal
-    end for λ in lons, φ in lats]
+# evaluated with a higher-degree field than the one used for propagation
+shd_map = HFEM.load_spherical_harmonics(SH_MOON_MAP, NMAX_MAP, true, HFEM.factorial_safe)
+lons = range(-180, 180, length = 361)      # 1 deg grid resolves the ~7 deg degree-50 wavelength
+lats = range(-90, 90, length = 181)
+R_ref = shd_map["REFERENCE RADIUS"]
+g_rad = zeros(length(lons), length(lats))
+t_map = @elapsed Threads.@threads for idx in CartesianIndices(g_rad)
+    λ, φ = lons[idx[1]], lats[idx[2]]
+    r̂ = [cosd(φ) * cosd(λ), cosd(φ) * sind(λ), sind(φ)]
+    a = HFEM.spherical_harmonics_accel_PCPF(R_ref * r̂, shd_map["Cnm"], shd_map["Snm"],
+        shd_map["GM"], R_ref, NMAX_MAP)
+    g_rad[idx] = -dot(a, r̂) * 1e8          # km/s^2 -> mGal; sign: positive = stronger downward pull
+end
+@printf("Gravity map (%d×%d field, %d points): %.1f s\n", NMAX_MAP, NMAX_MAP, length(g_rad), t_map)
 peri_lonlat = map(t_peri) do t
     r_pa = pxform(NAIF_FRAME, "MOON_PA", et0 + t * TU) * sol_nom(t)[1:3]
     λ, φ, _ = HFEM.cart2sph(r_pa)
@@ -349,14 +358,14 @@ axislegend(ax_c, [LineElement(color = C1, linewidth = 1), MarkerElement(color = 
 # (d) lunar gravity field ------------------------------------------------------------------- #
 gl_d = GridLayout(fig[2, 2])
 ax_d = Axis(gl_d[1, 1]; xlabel = "Longitude, deg", ylabel = "Latitude, deg",
-    title = "(d) Lunar gravity, $(NMAX)×$(NMAX) field", xticks = -180:90:180, yticks = -90:45:90,
+    title = "(d) Lunar gravity, $(NMAX_MAP)×$(NMAX_MAP) field", xticks = -180:90:180, yticks = -90:45:90,
     xgridvisible = false, ygridvisible = false)
 gmax = maximum(abs, g_rad)
 hm = heatmap!(ax_d, lons, lats, g_rad; colormap = :RdBu, colorrange = (-gmax, gmax))
 scatter!(ax_d, first.(peri_lonlat), last.(peri_lonlat); color = INK, marker = :xcross,
     markersize = 4, strokewidth = 0)
 xlims!(ax_d, -180, 180); ylims!(ax_d, -90, 90)
-Colorbar(gl_d[1, 2], hm; label = "radial accel., mGal", width = 4, ticksize = 2, tickwidth = 0.5,
+Colorbar(gl_d[1, 2], hm; label = "gravity disturbance, mGal", width = 4, ticksize = 2, tickwidth = 0.5,
     spinewidth = 0.5, labelpadding = 1, ticklabelpad = 1, ticklabelsize = LBL, labelsize = LBL)
 colgap!(gl_d, 3)
 
