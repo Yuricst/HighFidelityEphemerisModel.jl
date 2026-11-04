@@ -3,32 +3,33 @@ Hero figure summarizing the capabilities of HighFidelityEphemerisModel.jl.
 
 Panels
   (a) Monte Carlo ensemble about an Earth-Moon 9:2 NRHO (`EnsembleThreads` + Ephemerides.jl
-      backend), with perilune events detected via `get_trueanomaly_event`
-  (b) acceleration budget along the NRHO (point mass, third bodies, spherical harmonics, SRP)
-  (c) linear covariance propagated with the ForwardDiff-based STM vs. Monte Carlo dispersions
-  (d) lunar 50x50 spherical-harmonics gravity field (GRGM1200L), with the NRHO perilune
-      locations from (a)
-  (e) atmospheric density models (Harris-Priester, Jacchia-Roberts)
-  (f) LEO orbit decay under atmospheric drag, terminated by a callback at 120 km
-  (g) agreement between ephemeris backends (SPICE / Ephemerides.jl / interpolation) and
-      the SPK type-13 export round trip
+      backend)
+  (b) acceleration magnitudes along the NRHO (point mass, third bodies, spherical harmonics, SRP)
+  (c) linear covariance propagated with the ForwardDiff-based STM vs. Monte Carlo dispersions,
+      at the third apolune (detected with `get_trueanomaly_event`)
+  (d) lunar 50x50 spherical-harmonics gravity field (GRGM1200L)
+  (e) LEO orbit decay under atmospheric drag (Harris-Priester & Jacchia-Roberts densities),
+      terminated by a callback at 120 km
 
 Run from the repository root with threads enabled, e.g.
 
     julia --project=demos -t auto demos/demo_hero_figure.jl
 
-(add `--startup-file=no` if your startup file activates a different project). Takes ~2 min
+(add `--startup-file=no` if your startup file activates a different project). Takes ~1.5 min
 on 24 threads.
 
 Requires SPICE kernels under `ENV["SPICE"]` (as in the other demos), including the NRHO
 reference trajectory `misc/dsg_naif/receding_horiz_3189_1burnApo_DiffCorr_15yr.bsp` and the
 Earth-Moon rotating frame kernel `fk/earth_moon_rotating_mc.tf`.
 
-Outputs `demos/plots/hero_figure.pdf` (vector, 7 in wide, for the paper) and
+The Moon in (a) is textured with `demos/assets/moon.jpg` and oriented with the SPICE `MOON_PA`
+frame. Outputs `demos/plots/hero_figure.pdf` (vector, 7 in wide, for the paper) and
 `demos/plots/hero_figure.png`.
 """
 
 using CairoMakie
+using FileIO
+import GeometryBasics
 using LinearAlgebra
 using OrdinaryDiffEq
 using Printf
@@ -59,6 +60,9 @@ const SH_MOON = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
 const NMAX_MAP = 50                         # lunar SH degree & order of the gravity map (d)
 const SH_MOON_MAP = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_50x50.tab")
 const R_MOON = 1737.4                       # km, for plotting only
+# equirectangular lunar albedo map (0 deg longitude at the center, north up), as used in
+# PrettyTrajectory.jl (https://github.com/Yuricst/PrettyTrajectory.jl)
+const MOON_TEXTURE = joinpath(@__DIR__, "assets", "moon.jpg")
 
 naif_ids = ["301", "399", "10"]
 GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
@@ -81,11 +85,6 @@ p_spice = SpiceParameters(et0, DU, GMs, naif_ids, NAIF_FRAME, ABCORR; nrho_kwarg
 p_ephem = EphemeridesParameters(et0, DU, GMs, naif_ids, NAIF_FRAME, ABCORR; nrho_kwargs...,
     ephemerides_files = [joinpath(spice_dir, "spk", "de440.bsp"),
                          joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc")])
-interp_span = [et0 - 86400.0, et0 + horizon_sec + 86400.0]
-p_interp_fine = InterpParameters(et0, DU, GMs, naif_ids, NAIF_FRAME, ABCORR; nrho_kwargs...,
-    interpolate_ephem_span = interp_span, interpolation_time_step = 600.0)
-p_interp_coarse = InterpParameters(et0, DU, GMs, naif_ids, NAIF_FRAME, ABCORR; nrho_kwargs...,
-    interpolate_ephem_span = interp_span, interpolation_time_step = 3600.0)
 
 TU, VU = p_spice.TU, p_spice.VU
 x0_km = spkezr("-60000", et0, NAIF_FRAME, ABCORR, "301")[1]
@@ -94,17 +93,13 @@ tspan = (0.0, horizon_sec / TU)
 tol = (reltol = 1e-13, abstol = 1e-13)
 
 # ========================================================================================== #
-# Nominal NRHO with perilune / apolune event detection
+# Nominal NRHO, with apolune event detection (osculating true anomaly = π)
 # ========================================================================================== #
-t_peri = Float64[]
 t_apo = Float64[]
-cb_peri = ContinuousCallback(get_trueanomaly_event(0.0), integ -> push!(t_peri, integ.t);
-    save_positions = (false, false))
 cb_apo = ContinuousCallback(get_trueanomaly_event(π), integ -> push!(t_apo, integ.t);
     save_positions = (false, false))
-sol_nom = solve(ODEProblem(eom_NbodySH!, x0, tspan, p_ephem), Vern8(); tol...,
-    callback = CallbackSet(cb_peri, cb_apo))
-@printf("Nominal: %d perilune / %d apolune events\n", length(t_peri), length(t_apo))
+sol_nom = solve(ODEProblem(eom_NbodySH!, x0, tspan, p_ephem), Vern8(); tol..., callback = cb_apo)
+@printf("Nominal: %d apolune events\n", length(t_apo))
 
 # common plotting grid & rotation into the Earth-Moon rotating frame
 ts = range(tspan..., length = 4000)
@@ -142,7 +137,7 @@ P0 = Diagonal([fill((σr_km / DU)^2, 3); fill((σv_kms / VU)^2, 3)])
 P_rr = R_cmp * (Φ * P0 * Φ')[1:3, 1:3] * R_cmp' * DU^2             # km^2, rotating axes
 
 # ========================================================================================== #
-# (b) acceleration budget along the nominal NRHO (first two revolutions)
+# (b) acceleration magnitudes along the nominal NRHO (first two revolutions)
 # ========================================================================================== #
 ACC = DU / TU^2 * 1e3                      # canonical acceleration -> m/s^2
 ts_acc = range(0.0, 2 * period_days * 86400.0 / TU, length = 1500)
@@ -181,14 +176,9 @@ t_map = @elapsed Threads.@threads for idx in CartesianIndices(g_rad)
     g_rad[idx] = -dot(a, r̂) * 1e8          # km/s^2 -> mGal; sign: positive = stronger downward pull
 end
 @printf("Gravity map (%d×%d field, %d points): %.1f s\n", NMAX_MAP, NMAX_MAP, length(g_rad), t_map)
-peri_lonlat = map(t_peri) do t
-    r_pa = pxform(NAIF_FRAME, "MOON_PA", et0 + t * TU) * sol_nom(t)[1:3]
-    λ, φ, _ = HFEM.cart2sph(r_pa)
-    (rad2deg(λ), rad2deg(φ))
-end
 
 # ========================================================================================== #
-# (e) atmospheric density models & (f) LEO decay under drag
+# (e) LEO decay under drag
 # ========================================================================================== #
 R_EARTH = 6378.137
 h_stop = 120.0
@@ -198,12 +188,6 @@ density_models = [
     ("Harris–Priester (max)", HFEM.harris_priester_f_density(R_EARTH; use_min = false)),
     ("Jacchia–Roberts", HFEM.jacchia_roberts_f_density(frame_PCPF = "IAU_EARTH")),
 ]
-
-# density vs altitude above the equator at 0 deg longitude (body-fixed position, km)
-alts = 120.0:2.0:1000.0
-profiles = map(density_models) do (name, f_density)
-    [f_density(et0_leo, [R_EARTH + h, 0.0, 0.0]) for h in alts]
-end
 
 earth_ids = ["399", "301", "10"]
 GMs_earth = [bodvrd(ID, "GM", 1)[1] for ID in earth_ids]
@@ -222,39 +206,6 @@ decay = map(density_models) do (name, f_density)
     days = sol.t * p.TU / 86400
     @printf("Decay (%s): reaches %.0f km after %.2f days (%.1f s)\n", name, h_stop, days[end], t_run)
     (days, [norm(u[1:3]) * p.DU - R_EARTH for u in sol.u])
-end
-
-# ========================================================================================== #
-# (g) backend agreement & SPK export round trip (reference: SPICE backend)
-# ========================================================================================== #
-backend_sols = Dict{String,Any}()
-for (name, p) in [("SPICE", p_spice), ("Ephemerides.jl", p_ephem),
-                  ("Interp. 10 min", p_interp_fine), ("Interp. 1 h", p_interp_coarse)]
-    t_run = @elapsed backend_sols[name] = solve(ODEProblem(eom_NbodySH!, x0, tspan, p), Vern8(); tol...)
-    @printf("Backend %-16s: %6.2f s\n", name, t_run)
-end
-sol_ref = backend_sols["SPICE"]
-ts_cmp = range(tspan[1], tspan[2], length = 3000)[2:end-1]
-Δr(sol) = [norm(sol(t)[1:3] - sol_ref(t)[1:3]) * DU * 1e3 for t in ts_cmp]   # m
-
-spk_dir = mktempdir()
-spk_id = -999001
-res_spk = ode_sol_to_spk([sol_ref], et0, p_spice;
-    output_spk = joinpath(spk_dir, "nrho.bsp"), spice_id = spk_id, center_id = 301,
-    ref_frame_name = NAIF_FRAME, dt_sec = 300.0, write_metadata = false)
-furnsh(res_spk.output_spk)
-Δr_spk = [norm(spkpos(string(spk_id), et0 + t * TU, NAIF_FRAME, ABCORR, "301")[1] -
-               sol_ref(t)[1:3] * DU) * 1e3 for t in ts_cmp]
-unload(res_spk.output_spk)
-
-errors_g = [
-    ("Ephemerides.jl", accumulate(max, Δr(backend_sols["Ephemerides.jl"]))),
-    ("Interp., 10 min nodes", accumulate(max, Δr(backend_sols["Interp. 10 min"]))),
-    ("Interp., 1 h nodes", accumulate(max, Δr(backend_sols["Interp. 1 h"]))),
-    ("SPK type 13 export", accumulate(max, Δr_spk)),
-]
-for (name, e) in errors_g
-    @printf("  max |Δr| %-22s: %.3e m\n", name, e[end])
 end
 
 # ========================================================================================== #
@@ -282,8 +233,28 @@ set_theme!(merge(theme_latexfonts(), Theme(
     Lines = (linewidth = 0.8,),
 )))
 
-fig = Figure(size = (504, 380), figure_padding = (1, 4, 1, 1))   # 7 in wide (1 unit = 1 pt)
+fig = Figure(size = (504, 290), figure_padding = (1, 4, 1, 1))   # 7 in wide (1 unit = 1 pt)
 label_txt!(ax, x, y; kw...) = text!(ax, x, y; fontsize = LBL, color = INK2, kw...)
+
+"""
+Textured sphere (UV-sphere approach of PrettyTrajectory.jl's `plot_planet!`): vertices on a
+lat/lon grid in the body-fixed frame, rotated by `R_bf2plot` into the plotting frame, with
+per-vertex colors sampled from an equirectangular map `img` (0 deg longitude at the center,
+north up). Per-vertex sampling avoids backend-specific UV conventions.
+"""
+function textured_sphere!(ax, radius, img, R_bf2plot; nlon = 181, nlat = 91, kw...)
+    H, W = size(img)
+    λs = range(-180, 180, length = nlon)
+    φs = range(-90, 90, length = nlat)
+    pts = vec([Point3f(radius * (R_bf2plot * [cosd(φ) * cosd(λ), cosd(φ) * sind(λ), sind(φ)]))
+               for λ in λs, φ in φs])
+    colors = vec([img[clamp(round(Int, (90 - φ) / 180 * (H - 1)) + 1, 1, H),
+                      clamp(round(Int, (λ + 180) / 360 * (W - 1)) + 1, 1, W)] for λ in λs, φ in φs])
+    faces = GeometryBasics.decompose(GeometryBasics.QuadFace{GeometryBasics.GLIndex},
+        GeometryBasics.Tessellation(GeometryBasics.Rect(0, 0, 1, 1), (nlon, nlat)))
+    normals = [GeometryBasics.Vec3f(normalize(p)) for p in pts]
+    return mesh!(ax, GeometryBasics.Mesh(pts, faces; normal = normals); color = colors, kw...)
+end
 
 # (a) NRHO ensemble ------------------------------------------------------------------------- #
 S = 1e-3                                   # km -> 10^3 km
@@ -295,32 +266,28 @@ ax_a = Axis3(fig[1:2, 1]; aspect = :data, azimuth = deg2rad(145), elevation = de
     xlabel = "x, 10³ km", ylabel = "y, 10³ km", zlabel = "z, 10³ km",
     xlabeloffset = 14, ylabeloffset = 14, zlabeloffset = 24,
     xticks = [0, 20], yticks = [-20, 0, 20], zticks = -80:20:0,
-    limits = (box_a...,), title = "(a) NRHO ensemble", protrusions = (10, 32, 12, 6))
+    limits = (box_a...,), title = "(a) NRHO ensemble", protrusions = (10, 32, 0, 6),
+    height = Relative(0.8), valign = :top)   # leaves room for the legend below
 # all dispersed trajectories as a single NaN-separated polyline, rasterized as one image
 # to keep the PDF light (everything else stays vector)
 r_mc = reduce(hcat, [hcat(clip_a(s[1]), fill(NaN, 3)) for s in sols_mc.u])
 lines!(ax_a, r_mc[1, :], r_mc[2, :], r_mc[3, :]; color = (C2, 0.15), linewidth = 0.2, rasterize = 8)
 lines!(ax_a, r_nom_rot[1, :] * S, r_nom_rot[2, :] * S, r_nom_rot[3, :] * S; color = INK, linewidth = 0.6)
-mesh!(ax_a, Sphere(Point3f(0), Float32(R_MOON * S)); color = colorant"#b9b8b2")
-r_peri = hcat([pxform(NAIF_FRAME, ROT_FRAME, et0 + t * TU) * sol_nom(t)[1:3] * DU for t in t_peri]...)
-scatter!(ax_a, r_peri[1, :] * S, r_peri[2, :] * S, r_peri[3, :] * S; color = C1, markersize = 4,
-    strokecolor = :white, strokewidth = 0.4)
+# Moon oriented as at the initial epoch (near side towards the Earth, i.e. along -x)
+textured_sphere!(ax_a, R_MOON * S, load(MOON_TEXTURE), pxform("MOON_PA", ROT_FRAME, et0); rasterize = 8)
 r_cmp_nom = R_cmp * sol_nom(t_cmp)[1:3] * DU
 scatter!(ax_a, [r_cmp_nom[1] * S], [r_cmp_nom[2] * S], [r_cmp_nom[3] * S]; color = C3,
     marker = :diamond, markersize = 6, strokecolor = :white, strokewidth = 0.4)
-Legend(fig[3, 1],
+Legend(fig[1:2, 1],
     [LineElement(color = INK, linewidth = 1), LineElement(color = C2, linewidth = 1),
-     MarkerElement(color = C1, marker = :circle, markersize = 4),
      MarkerElement(color = C3, marker = :diamond, markersize = 6)],
-    ["nominal 9:2 NRHO, $N_rev revs", "$N_mc dispersed (EnsembleThreads)",
-     "perilune events (callback)", "epoch of panel (c)"], "Earth–Moon rotating frame";
-    titlefont = :regular, titlesize = LBL, titlehalign = :left, titlegap = 1,
-    tellwidth = false, tellheight = false, halign = :left, valign = :top)
+    ["nominal 9:2 NRHO, $N_rev revs", "$N_mc dispersed (EnsembleThreads)", "epoch of panel (c)"];
+    tellwidth = false, tellheight = false, halign = :left, valign = :bottom)
 
-# (b) acceleration budget ------------------------------------------------------------------- #
+# (b) acceleration magnitudes ----------------------------------------------------------------- #
 days_acc = ts_acc * TU / 86400
 ax_b = Axis(fig[1, 2]; yscale = log10, xlabel = "Time, days", ylabel = "|a|, m/s²",
-    title = "(b) Acceleration budget", yticks = LogTicks(-9:3:0), yminorticksvisible = false,
+    title = "(b) Acceleration magnitudes", yticks = LogTicks(-9:3:0), yminorticksvisible = false,
     xticks = 0:4:12)
 for (k, c) in [(:moon, INK), (:earth, C1), (:sun, C2), (:sh, C3), (:srp, C4)]
     lines!(ax_b, days_acc, acc[k]; color = c)
@@ -356,57 +323,36 @@ axislegend(ax_c, [LineElement(color = C1, linewidth = 1), MarkerElement(color = 
     ["STM (ForwardDiff Jacobian)", "Monte Carlo, $N_mc samples"]; position = :lt)
 
 # (d) lunar gravity field ------------------------------------------------------------------- #
-gl_d = GridLayout(fig[2, 2])
+gl_d = GridLayout(fig[2, 2]; valign = :top)
 ax_d = Axis(gl_d[1, 1]; xlabel = "Longitude, deg", ylabel = "Latitude, deg",
     title = "(d) Lunar gravity, $(NMAX_MAP)×$(NMAX_MAP) field", xticks = -180:90:180, yticks = -90:45:90,
     xgridvisible = false, ygridvisible = false)
 gmax = maximum(abs, g_rad)
 hm = heatmap!(ax_d, lons, lats, g_rad; colormap = :RdBu, colorrange = (-gmax, gmax))
-scatter!(ax_d, first.(peri_lonlat), last.(peri_lonlat); color = INK, marker = :xcross,
-    markersize = 4, strokewidth = 0)
 xlims!(ax_d, -180, 180); ylims!(ax_d, -90, 90)
-Colorbar(gl_d[1, 2], hm; label = "gravity disturbance, mGal", width = 4, ticksize = 2, tickwidth = 0.5,
-    spinewidth = 0.5, labelpadding = 1, ticklabelpad = 1, ticklabelsize = LBL, labelsize = LBL)
-colgap!(gl_d, 3)
+Colorbar(gl_d[2, 1], hm; label = "gravity disturbance, mGal", vertical = false, flipaxis = false,
+    height = 3, width = Relative(0.7), ticksize = 2, tickwidth = 0.5, spinewidth = 0.5,
+    labelpadding = 0, ticklabelpad = 1, ticklabelsize = LBL, labelsize = LBL)
+rowgap!(gl_d, 6)
+rowsize!(gl_d, 1, Aspect(1, 0.5))      # 2:1 equirectangular map
 
-# (e) density models ------------------------------------------------------------------------ #
-ax_e = Axis(fig[2, 3]; xscale = log10, xlabel = "Density, kg/m³", ylabel = "Altitude, km",
-    title = "(e) Atmosphere models", xticks = LogTicks(-15:3:-6), xminorticksvisible = false,
-    yticks = 200:200:1000)
-for (ρ, c) in zip(profiles, (C1, C2, C3))
-    lines!(ax_e, ρ, collect(alts); color = c)
-end
-ylims!(ax_e, 100, 1000)
-axislegend(ax_e, [LineElement(color = c, linewidth = 1) for c in (C1, C2, C3)],
-    first.(density_models); position = :rt)
-
-# (f) drag decay ---------------------------------------------------------------------------- #
-ax_f = Axis(fig[3, 2]; xlabel = "Time, days", ylabel = "Altitude, km", title = "(f) LEO decay with drag",
+# (e) drag decay ---------------------------------------------------------------------------- #
+ax_e = Axis(fig[2, 3]; xlabel = "Time, days", ylabel = "Altitude, km", title = "(e) LEO decay with drag",
     yticks = 120:40:240)
-hlines!(ax_f, [h_stop]; color = INK2, linestyle = :dash, linewidth = 0.5)
+hlines!(ax_e, [h_stop]; color = INK2, linestyle = :dash, linewidth = 0.5)
 for ((days, h), c) in zip(decay, (C1, C2, C3))
-    lines!(ax_f, days, h; color = c, linewidth = 0.4)
+    lines!(ax_e, days, h; color = c, linewidth = 0.4)
 end
-label_txt!(ax_f, 0.0, h_stop; text = "terminal event", align = (:left, :bottom), offset = (1, 1))
-label_txt!(ax_f, 0.05, 160; text = "colors as in (e)", align = (:left, :bottom))
-ylims!(ax_f, 110, 260)
-xlims!(ax_f, 0, nothing)
+label_txt!(ax_e, 0.0, h_stop; text = "terminal event", align = (:left, :bottom), offset = (1, 1))
+ylims!(ax_e, 110, 260)
+xlims!(ax_e, 0, nothing)
+axislegend(ax_e, [LineElement(color = c, linewidth = 1) for c in (C1, C2, C3)],
+    first.(density_models); position = (0.0, 0.12))
 
-# (g) backend agreement --------------------------------------------------------------------- #
-days_cmp = ts_cmp * TU / 86400
-ax_g = Axis(fig[3, 3]; yscale = log10, xlabel = "Time, days", ylabel = "max |Δr| vs. SPICE, m",
-    title = "(g) Backends & SPK export", yticks = LogTicks(-6:2:2), yminorticksvisible = false)
-for ((name, e), c) in zip(errors_g, (C1, C2, C3, C4))
-    lines!(ax_g, days_cmp, max.(e, 1e-7); color = c, label = name)
-end
-xlims!(ax_g, 0, days_cmp[end])
-ylims!(ax_g, 1e-6, 1e4)
-axislegend(ax_g; position = :lt, nbanks = 1)
-
-colsize!(fig.layout, 1, Relative(0.30))
+colsize!(fig.layout, 1, Relative(0.36))
 colgap!(fig.layout, 1, 6)
 colgap!(fig.layout, 2, 8)
-rowgap!(fig.layout, 4)
+rowgap!(fig.layout, 6)
 
 plots_dir = joinpath(@__DIR__, "plots")
 mkpath(plots_dir)
