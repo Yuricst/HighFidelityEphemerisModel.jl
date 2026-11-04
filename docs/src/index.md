@@ -57,3 +57,5 @@ julia> include("make.jl")
 - [Perturbations](@ref)
 - [Jacobians & Hessians](@ref)
 - [ODE Solutions to SPK Files](@ref)
+
+The tutorials are also available as Jupyter notebooks in the [`examples`](https://github.com/Yuricst/HighFidelityEphemerisModel.jl/tree/main/examples) folder of the repository, which can be downloaded and run locally.
