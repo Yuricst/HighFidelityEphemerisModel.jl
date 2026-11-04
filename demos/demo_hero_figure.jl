@@ -262,11 +262,11 @@ box_a = ((-10.0, 25.0), (-25.0, 25.0), (-80.0, 10.0))   # plotted region, 10^3 k
 # blank out the parts of escaping trajectories that leave the plotted region
 clip_a(r) = [all(box_a[k][1] <= r[k, j] * S <= box_a[k][2] for k in 1:3) ? r[i, j] * S : NaN
              for i in 1:3, j in axes(r, 2)]
-ax_a = Axis3(fig[1:2, 1]; aspect = :data, azimuth = deg2rad(145), elevation = deg2rad(12),
+ax_a = Axis3(fig[1:2, 1]; aspect = :data, azimuth = deg2rad(200), elevation = deg2rad(12),   # x right, y left, z on the left
     xlabel = "x, 10³ km", ylabel = "y, 10³ km", zlabel = "z, 10³ km",
     xlabeloffset = 14, ylabeloffset = 14, zlabeloffset = 24,
     xticks = [0, 20], yticks = [-20, 0, 20], zticks = -80:20:0,
-    limits = (box_a...,), title = "(a) NRHO ensemble", protrusions = (10, 32, 0, 6),
+    limits = (box_a...,), title = "(a) NRHO ensemble", protrusions = (32, 10, 0, 6),
     height = Relative(0.8), valign = :top)   # leaves room for the legend below
 # all dispersed trajectories as a single NaN-separated polyline, rasterized as one image
 # to keep the PDF light (everything else stays vector)
