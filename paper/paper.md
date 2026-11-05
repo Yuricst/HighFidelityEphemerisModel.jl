@@ -103,7 +103,8 @@ Julia's multiple dispatch allows the same high-level equations-of-motion functio
 Numerical integration is delegated to `OrdinaryDiffEq.jl` [@rackauckas2017differentialequations]. This self-contained example propagates a Moon-centered state with Earth and Sun point-mass perturbations. Run it from the HFEM repository using `julia --project=.` after installing its declared dependencies. Download the required NAIF kernels beforehand and set the `SPICE` environment variable to their root directory, with `lsk/`, `spk/`, and `pck/` subdirectories.
 
 ```julia
-using HighFidelityEphemerisModel, OrdinaryDiffEq
+using HighFidelityEphemerisModel
+using OrdinaryDiffEq
 using SPICE
 
 spice_dir = ENV["SPICE"]
