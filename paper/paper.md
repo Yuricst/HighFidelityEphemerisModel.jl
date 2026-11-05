@@ -45,8 +45,6 @@ Although these tools offer extensive capabilities, HighFidelityEphemerisModel.jl
 
 Within the Julia ecosystem, `SatelliteToolbox.jl` offers satellite-analysis tools, including analytical orbit propagators and terrestrial reference-frame utilities [@satellitetoolbox]. `GeneralAstrodynamics.jl` provides common astrodynamics calculations and solvers for Keplerian, Lambert, and halo-orbit problems [@generalastrodynamics]. `AstroModels.jl` develops reusable gravitational and other astrodynamical force models [@astromodels]. HFEM complements these projects by packaging ephemeris-based spacecraft equations of motion, multiple ephemeris backends, and Cartesian and Gauss variational formulations for direct use with Julia differential-equation solvers.
 
-Developing HFEM as a dedicated Julia package provides a focused interface to high-fidelity spacecraft dynamics without requiring researchers to integrate larger mission-analysis environments or introduce cross-language interfaces. Its combination of ephemeris evaluation, configurable perturbations, and multiple orbital-state representations supports custom research applications while leveraging existing Julia numerical computing tools. HFEM therefore complements established astrodynamics software rather than attempting to replace its broader mission-analysis and operational capabilities.
-
 # Software design
 
 ## Dynamical model
@@ -69,25 +67,65 @@ where $\boldsymbol{x}=[\boldsymbol{r}^{T},\boldsymbol{v}^{T}]^{T}$ is the spacec
 
 Third-body accelerations are evaluated using ephemeris-derived body positions and Battin's numerically stable formulation [@battin1987]. Spherical-harmonic accelerations are evaluated in the corresponding body-fixed frame and transformed into the propagation frame. The implementation also supports nondimensional state and time scaling through configurable characteristic distance and time units.
 
+For the prograde modified equinoctial elements (MEE) $\boldsymbol{y}=(p,f,g,h,k,L)$ [@walker1985mee], $p$ is the semi-latus rectum and
+
+$$
+\begin{aligned}
+f&=e\cos\varpi, & g&=e\sin\varpi, & \varpi&=\Omega+\omega,\\
+h&=\tan(i/2)\cos\Omega, & k&=\tan(i/2)\sin\Omega, & L&=\varpi+\nu .
+\end{aligned}
+$$
+
+Here $e,i,\Omega,\omega,\nu$ denote eccentricity, inclination, ascending-node longitude, argument of periapsis, and true anomaly. Define $w=1+f\cos L+g\sin L$, $s^2=1+h^2+k^2$, $q=\sqrt{p/\mu}$, and $\chi=h\sin L-k\cos L$. The implemented Gauss variational equations are
+
+$$
+\begin{aligned}
+\dot p &= \frac{2pq}{w}a_T,\\
+\dot f &= q\left[\sin L\,a_R+
+ \frac{(w+1)\cos L+f}{w}a_T-\frac{g\chi}{w}a_N\right],\\
+\dot g &= q\left[-\cos L\,a_R+
+ \frac{(w+1)\sin L+g}{w}a_T+\frac{f\chi}{w}a_N\right],\\
+\dot h &= \frac{q s^2\cos L}{2w}a_N,\qquad
+\dot k = \frac{q s^2\sin L}{2w}a_N,\\
+\dot L &= \sqrt{\mu p}\left(\frac{w}{p}\right)^2
+ +\frac{q\chi}{w}a_N .
+\end{aligned}
+$$
+
+The components $(a_R,a_T,a_N)$ contain only perturbing acceleration: radial outward, transverse along $\hat{\boldsymbol N}\times\hat{\boldsymbol R}$, and normal along $\boldsymbol r\times\boldsymbol v$. HFEM subtracts central two-body acceleration before this projection; the first term in $\dot L$ supplies Keplerian drift. Consistent physical or canonical units are required, with $\mu$ the corresponding central-body parameter and angles in radians.
+
 ## Modular implementation
 
 A central architectural decision is the separation of dynamical models from ephemeris evaluation and numerical integration. HFEM provides three parameter backends: `SpiceParameters`, which queries NAIF SPICE directly [@acton1996spice]; `EphemeridesParameters`, which uses the Julia-native `Ephemerides.jl` and `FrameTransformations.jl` libraries [@jsmdEphemerides; @jsmdFrameTransformations]; and `InterpParameters`, which evaluates pre-interpolated ephemeris and transformation data.
 
 Julia's multiple dispatch allows the same high-level equations-of-motion functions, `eom_Nbody!` and `eom_NbodySH!`, to operate with these different parameter types. Direct SPICE evaluation provides an established reference implementation, while the Julia-native backend supports automatic differentiation and tested multithreaded propagation workflows without relying on direct CSPICE calls during each force evaluation. The interpolated backend is retained for compatibility, although its accuracy depends on the interpolation resolution.
 
-Numerical integration is delegated to Julia's `OrdinaryDiffEq.jl` ecosystem [@rackauckas2017differentialequations]. This separation permits users to select integration algorithms and error tolerances independently of the dynamical model. For example, assuming the required ephemeris data have been loaded and an HFEM parameter object has been initialized, a spacecraft trajectory can be propagated using
+Numerical integration is delegated to `OrdinaryDiffEq.jl` [@rackauckas2017differentialequations]. This self-contained example propagates a Moon-centered state with Earth and Sun point-mass perturbations. Run it from the HFEM repository using `julia --project=.` after installing its declared dependencies. Download the required NAIF kernels beforehand and set the `SPICE` environment variable to their root directory, with `lsk/`, `spk/`, and `pck/` subdirectories.
 
 ```julia
-using HighFidelityEphemerisModel
-using OrdinaryDiffEq
-# Assumes params is a configured HFEM parameter object
+using HighFidelityEphemerisModel, OrdinaryDiffEq
+using SPICE
+
+spice_dir = ENV["SPICE"]
+furnsh(joinpath(spice_dir, "lsk", "naif0012.tls"))
+furnsh(joinpath(spice_dir, "spk", "de440.bsp"))
+furnsh(joinpath(spice_dir, "pck", "gm_de440.tpc"))
+
+ids = ["301", "399", "10"]  # Moon first, then Earth and Sun
+GMs = [bodvrd(id, "GM", 1)[1] for id in ids]  # km^3/s^2
+et0 = str2et("2026-01-05T00:00:00")  # UTC input
+DU = 1e5  # km
+params = SpiceParameters(et0, DU, GMs, ids, "J2000", "NONE")
+
 x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]
 tspan = (0.0, 6 * 3600 / params.TU)
-prob = ODEProblem(eom_NbodySH!, x0, tspan, params)
+prob = ODEProblem(eom_Nbody!, x0, tspan, params)
 sol = solve(prob, Vern8(); reltol=1e-12, abstol=1e-12)
+@assert sol.t[end] == tspan[2] && all(u -> all(isfinite, u), sol.u)
+kclear()
 ```
 
-Here, `x0` and `tspan` are expressed in the canonical units defined by the parameter object, and `eom_NbodySH!` evaluates N-body dynamics with spherical-harmonic perturbations. The numerical solver and tolerances can be changed without modifying the underlying force-model implementation.
+The state and time use canonical units: $\mathrm{VU}=\sqrt{\mathrm{GM}_{\rm Moon}/\mathrm{DU}}$ and $\mathrm{TU}=\mathrm{DU}/\mathrm{VU}$. The six-hour example omits harmonics, SRP, and drag; solver choice remains independent of the force model.
 
 Figure \ref{fig:hfem-architecture} summarizes these interfaces.
 
@@ -95,10 +133,9 @@ Figure \ref{fig:hfem-architecture} summarizes these interfaces.
 
 ## Orbital representations and research interfaces
 
-In addition to Cartesian propagation, HFEM implements Gauss variational equations in modified equinoctial [@walker1985mee], classical Keplerian, and ordinary equinoctial elements.
-The associated orbital-element conversions use `AstrodynamicsCore.jl` [@astrodynamicscore]. These formulations reuse the existing Cartesian force models by reconstructing the Cartesian state, evaluating the inertial accelerations, subtracting the central two-body contribution, and projecting the remaining perturbing acceleration into the radial-transverse-normal frame. This avoids maintaining separate perturbation implementations for each orbital representation.
+In addition to the MEE formulation described above, HFEM supports Gauss variational equations in classical Keplerian and ordinary equinoctial elements. Orbital-element conversions are provided through `AstrodynamicsCore.jl` [@astrodynamicscore].
 
-The choice of formulation depends on the trajectory domain. Modified equinoctial elements support elliptic, parabolic, and hyperbolic trajectories, subject to their inclination singularity, while classical Keplerian elements become singular or ill-conditioned for certain circular, equatorial, and parabolic configurations. The implemented ordinary equinoctial formulation is restricted to elliptic trajectories.
+Prograde MEE support elliptic, parabolic, and hyperbolic trajectories for $p>0$ and $w\ne0$, but are singular at $i=\pi$. Classical Keplerian elements are singular for circular and equatorial orbits and ill-conditioned near the parabolic boundary. The implemented ordinary equinoctial formulation is restricted to elliptic trajectories.
 
 The package also provides automatic-differentiation-based Jacobian and Hessian calculations through `ForwardDiff.jl` [@revels2016forwarddiff], together with state-transition matrix propagation for sensitivity analysis. Propagated trajectories can be exported to SPICE type-13 ephemeris kernels, with utilities supporting multiple trajectory segments and maneuver metadata. Together, these capabilities facilitate the integration of high-fidelity spacecraft dynamics into trajectory optimization, guidance, and reproducible mission-analysis workflows.
 
@@ -130,16 +167,16 @@ Table \ref{tbl:validation-cases}, Figure \ref{fig:validation-position}, and Tabl
 
 ![Position residuals against HFEM SPICE trajectories or tool-specific numerical mirrors, not absolute trajectory accuracy. Initialization ($t=0$) is omitted; later stored zeros appear as logarithmic gaps without flooring. Output sampling differs from integration steps. \label{fig:validation-position}](figures/validation_position_errors.png){width="100%"}
 
-Additional benchmarks evaluate the computational performance of HFEM's alternative ephemeris backends. For warm trajectory propagation, the Julia-native `Ephemerides.jl` backend reduced execution time relative to direct SPICE evaluation from 0.2473 to 0.1236 s for a point-mass near-rectilinear halo orbit case, and from 0.8677 to 0.7031 s for a case including lunar spherical harmonics. These results demonstrate the performance characteristics of the alternative backend under the tested configurations, without implying equivalent improvements for all dynamical models or computational environments.
+Additional benchmarks evaluate HFEM's alternative ephemeris backends. The Julia-native `Ephemerides.jl` backend reduced propagation time relative to direct SPICE evaluation from 0.2473 to 0.1236 s for a point-mass near-rectilinear halo orbit case, and from 0.8677 to 0.7031 s with lunar spherical harmonics. These timings are configuration-specific, not universal speedups.
 
-Table \ref{tbl:warm-performance} reports warm end-to-end propagation at HFEM source commit `2aca3a70ffffad4e61db28f68c8c9d6d7630f1e9` (Julia 1.10.11). Timings include ODE construction, Vern8 propagation and in-memory output with initialized backends; setup, compilation and serialization are excluded.
+Table \ref{tbl:warm-performance} reports end-to-end propagation at HFEM source commit `2aca3a70ffffad4e61db28f68c8c9d6d7630f1e9` (Julia 1.10.11). For each case/backend, an initial untimed solve excludes the initial Julia compilation run; a separate allocation-measurement solve also precedes the ten timed repetitions. No compilation time is subtracted from measured runs. Timings include ODE construction, Vern8 propagation and in-memory output with initialized backends; backend setup and serialization are excluded.
 
 | Case | SPICE [s] | Ephemerides [s] | Time ratio |
 |---|---|---|---|
 | P3 | 0.2472955 | 0.1236207 | 0.4999 |
 | H7 | 0.8677467 | 0.7031303 | 0.8103 |
 
-: Median warm propagation (ten repetitions, one Julia thread). Ratio: Ephemerides/SPICE. P3 uses point masses; H7 adds lunar 4x4. \label{tbl:warm-performance}
+: Median propagation (ten repetitions, one Julia thread). Ratio: Ephemerides/SPICE. P3 uses point masses; H7 adds lunar 4x4. \label{tbl:warm-performance}
 
 The package is distributed through Julia's package registry and provides documented examples, automated tests, and continuous integration to support reproducible research and further software development.
 
