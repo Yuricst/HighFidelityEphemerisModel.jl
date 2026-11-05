@@ -11,36 +11,56 @@ end
 
 
 """
-Compute Legendre function of degree n order m
+Compute the (unnormalized) associated Legendre function of degree n order m,
+without the Condon-Shortley phase (c.f. Montenbruck & Gill pg.57 eqn (3.11)).
+
+Evaluated with the standard three-term recurrence in degree,
+
+    P_mm      = (2m-1)!! (1 - t^2)^(m/2)
+    P_{m+1,m} = (2m+1) t P_mm
+    P_nm      = ((2n-1) t P_{n-1,m} - (n+m-1) P_{n-2,m}) / (n-m)
+
+This avoids the explicit-sum formula, which overflowed `Int64` for n >= 13 and lost
+precision through cancellation at high degree. Relative to max |P_nm| over t, the
+recurrence is accurate to ~1e-13 up to degree 30 (worst near the poles, where
+`1 - t^2` itself carries the rounding of t = sin φ). Being unnormalized, the values
+exceed `Float64` range for orders m >~ 150 (and the denormalized coefficients become
+subnormal), so this formulation is limited to fields of degree well below that.
 
 # Arguments
 - `n::Int`: degree (must be >= m)
-- `m::Int`: order 
-- `t::Real`: argument (cosine of latitude)
+- `m::Int`: order (must be >= 0)
+- `t::Real`: argument (sine of latitude)
+- `factorial_alias::Function`: unused; retained for backward compatibility
 
 # Returns
 - `Pnm::Real`: Legendre function value
 """
 function legendre(n::Int, m::Int, t::Real, factorial_alias::Function = factorial_safe)
-    @assert n >= m "Require n >= m!"
-    
-    # Get r
-    if mod(n - m, 2) == 0
-        r = div(n - m, 2)
-    else
-        r = div(n - m - 1, 2)
+    @assert 0 <= m <= n "Require 0 <= m <= n!"
+
+    # P_mm = (2m-1)!! (1 - t^2)^(m/2); even powers are kept polynomial (no sqrt)
+    # so that derivatives (e.g. ForwardDiff) stay finite at t = ±1 whenever possible
+    one_minus_t2 = (1 - t) * (1 + t)    # more accurate than 1 - t^2 for |t| near 1
+    P_mm = one(t)
+    for i = 1:m
+        P_mm *= 2i - 1                  # (2m-1)!!
     end
-    
-    # Compute sum term
-    sum_term = 0.0
-    for k = 0:r
-        denom = factorial_alias(k) * factorial_alias(n - k) * factorial_alias(n - m - 2*k)
-        sum_term += (-1)^k * factorial_alias(2*n - 2*k) / denom * t^(n - m - 2*k)
+    for _ = 1:(m ÷ 2)
+        P_mm *= one_minus_t2            # (1 - t^2)^(m ÷ 2), by repeated product
     end
-    
-    # Compute Pnm
-    Pnm = 2.0^(-n) * (1 - t^2)^(m/2) * sum_term
-    return Pnm
+    if isodd(m)
+        P_mm *= sqrt(one_minus_t2)
+    end
+    n == m && return P_mm
+
+    # upward recurrence in degree
+    P_prev = P_mm                       # P_{l-2,m}
+    P_curr = (2m + 1) * t * P_mm        # P_{l-1,m}
+    for l = m+2:n
+        P_prev, P_curr = P_curr, ((2l - 1) * t * P_curr - (l + m - 1) * P_prev) / (l - m)
+    end
+    return P_curr
 end
     
 
@@ -107,13 +127,14 @@ function spherical_harmonics_nm_accel_PCPF(
     else
         V_n1_m1, W_n1_m1 = get_VWnm(phi, lambda, R, r, n+1, m+1, factorial_alias)
         V_n1_m_1, W_n1_m_1 = get_VWnm(phi, lambda, R, r, n+1, m-1, factorial_alias)
+        factorial_ratio = (n-m+2) * (n-m+1)     # (n-m+2)! / (n-m)!, exact without factorials
         d2x_nm = GM/(2*R^2) * (
-            (-Cnm * V_n1_m1 - Snm * W_n1_m1) + 
-            factorial_alias(n-m+2)/factorial_alias(n-m) * (Cnm * V_n1_m_1 + Snm * W_n1_m_1)
+            (-Cnm * V_n1_m1 - Snm * W_n1_m1) +
+            factorial_ratio * (Cnm * V_n1_m_1 + Snm * W_n1_m_1)
         )
         d2y_nm = GM/(2*R^2) * (
-            (-Cnm * W_n1_m1 + Snm * V_n1_m1) + 
-            factorial_alias(n-m+2)/factorial_alias(n-m) * (-Cnm * W_n1_m_1 + Snm * V_n1_m_1)
+            (-Cnm * W_n1_m1 + Snm * V_n1_m1) +
+            factorial_ratio * (-Cnm * W_n1_m_1 + Snm * V_n1_m_1)
         )
     end
     

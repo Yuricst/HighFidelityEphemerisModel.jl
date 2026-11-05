@@ -58,10 +58,10 @@ end
 Overload method for showing InterpolatedEphemeris
 """
 function Base.show(io::IO, ephem::InterpolatedEphemeris)
-    println("Interpolated ephemeris struct")
-    @printf("    et0        : %s (%1.8f)\n", et2utc(ephem.et_range[1], "ISOC", 3), ephem.et_range[1])
-    @printf("    etf        : %s (%1.8f)\n", et2utc(ephem.et_range[2], "ISOC", 3), ephem.et_range[2])
-    @printf("    naif_id    : %s\n", ephem.naif_id)
+    println(io, "Interpolated ephemeris struct")
+    @printf(io, "    et0        : %s (%1.8f)\n", et2utc(ephem.et_range[1], "ISOC", 3), ephem.et_range[1])
+    @printf(io, "    etf        : %s (%1.8f)\n", et2utc(ephem.et_range[2], "ISOC", 3), ephem.et_range[2])
+    @printf(io, "    naif_id    : %s\n", ephem.naif_id)
 end
 
 

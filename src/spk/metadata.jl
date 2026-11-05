@@ -190,17 +190,32 @@ function infer_force_model_metadata(parameters)
     mus !== nothing && (meta["mu_values"] = _json_safe(mus))
 
     srp = Dict{String,Any}()
-    _add_if_found!(srp, "enabled", parameters, (:use_srp, :srp_enabled, :SRP_ENABLED, :srp_on))
+    _add_if_found!(srp, "enabled", parameters, (:include_srp, :use_srp, :srp_enabled, :SRP_ENABLED, :srp_on))
     _add_if_found!(srp, "Cr", parameters, (:srp_Cr, :SRP_Cr, :Cr))
     _add_if_found!(srp, "A_over_m", parameters, (:srp_Am, :SRP_Am, :A_over_m, :Am))
     _add_if_found!(srp, "P0", parameters, (:srp_P0, :SRP_P0, :P0))
+    _add_if_found!(srp, "k_cannonball_canonical", parameters, (:k_srp_cannonball,))
     !isempty(srp) && (meta["SRP"] = srp)
+
+    drag = Dict{String,Any}()
+    _add_if_found!(drag, "enabled", parameters, (:include_drag, :use_drag, :drag_enabled))
+    _add_if_found!(drag, "k_drag_canonical", parameters, (:k_drag,))
+    _add_if_found!(drag, "omega_atm_radps", parameters, (:omega_atm,))
+    !isempty(drag) && (meta["drag"] = drag)
 
     sh = Dict{String,Any}()
     _add_if_found!(sh, "enabled", parameters, (:use_spherical_harmonics, :spherical_harmonics_enabled, :sh_enabled))
+    sh_data = _property_first(parameters, (:spherical_harmonics_data,))
+    if sh_data isa AbstractDict
+        sh["enabled"] = true
+        haskey(sh_data, "nmax") && (sh["degree"] = _json_safe(sh_data["nmax"]))
+    end
     _add_if_found!(sh, "degree", parameters, (:nmax, :Nmax, :gravity_degree, :spherical_harmonics_degree))
     _add_if_found!(sh, "file", parameters, (:spherical_harmonics_file, :sh_file, :gravity_file))
-    _add_if_found!(sh, "body_fixed_frame", parameters, (:frame_PCPF, :pcpf_frame, :body_fixed_frame))
+    # Only label the body-fixed frame as the gravity frame when harmonics are actually on
+    if get(sh, "enabled", false) == true
+        _add_if_found!(sh, "body_fixed_frame", parameters, (:frame_PCPF, :pcpf_frame, :body_fixed_frame))
+    end
     !isempty(sh) && (meta["spherical_harmonics"] = sh)
 
     return meta

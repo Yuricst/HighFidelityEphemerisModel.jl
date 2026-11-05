@@ -48,3 +48,28 @@ test_interpolate_ephem = function ()
 end
 
 test_interpolate_ephem()
+
+
+# Rapidly rotating frame: the prime-meridian Euler angle wraps by 2π every day,
+# which the spline must follow (regression test for angle unwrapping).
+test_interpolate_transformation_wrapping = function ()
+    et0 = str2et("2020-01-01T00:00:00")
+    ets = range(et0, et0 + 3 * 86400.0, step = 3600.0)
+    transformation_interp = HighFidelityEphemerisModel.InterpolatedTransformation(
+        ets, "J2000", "IAU_EARTH", false, 1.0,
+    )
+    ets_test = range(et0 + 1e-3, et0 + 3 * 86400.0 - 1e-3, 2000)
+    err_max = maximum(
+        maximum(abs.(SPICE.pxform("J2000", "IAU_EARTH", et) -
+                     HighFidelityEphemerisModel.pxform(transformation_interp, et)))
+        for et in ets_test
+    )
+    @test err_max < 1e-10
+
+    angles = [0.1, 3.0, -3.0, -0.5, 2.9, -3.1]
+    HighFidelityEphemerisModel._unwrap_angles!(angles)
+    @test all(abs.(diff(angles)) .< π)
+    @test angles[3] ≈ -3.0 + 2π
+end
+
+test_interpolate_transformation_wrapping()

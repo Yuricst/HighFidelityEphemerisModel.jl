@@ -92,6 +92,30 @@ mutable struct EphemeridesParameters <: HighFidelityEphemerisModelParameters
 end
 
 
+"""
+    copy(params)
+
+Copy of HFEM parameters that is safe to mutate independently of the original.
+
+Scalars (e.g. `k_srp_cannonball`, `k_drag`) and the small mutable vectors
+(`GMs`, `mus`, `naif_ids`, `omega_atm`, `u`) are independent on the copy.
+Heavy or read-only data (ephemerides provider/frame system, interpolated
+ephemerides/transformation, spherical harmonics coefficients, `f_density`) are
+shared with the original and must not be mutated in place.
+
+Intended for per-trajectory parameter changes in an `EnsembleProblem`
+`prob_func`, together with `safetycopy = false` to avoid deep-copying the
+ephemeris data for every trajectory.
+"""
+function Base.copy(params::HighFidelityEphemerisModelParameters)
+    T = typeof(params)
+    return T(ntuple(fieldcount(T)) do i
+        v = getfield(params, i)
+        fieldname(T, i) in (:GMs, :mus, :naif_ids, :omega_atm, :u) ? copy(v) : v
+    end...)
+end
+
+
 function Base.show(io::IO, params::HighFidelityEphemerisModelParameters)
     println(io, string(typeof(params)))
     @printf(io, "    et0              : %s (et = %1.8f)\n", et2utc(params.et0, "ISOC", 3), params.et0)
@@ -196,20 +220,15 @@ function _hfem_common_fields(
     if "10" in naif_ids
         idx_sun = findfirst(x -> x == "10", naif_ids)
     elseif include_srp
-        @error "NAIF ID \"10\" (Sun) must be provided when SRP is included"
-        idx_sun = 0
+        error("NAIF ID \"10\" (Sun) must be provided in `naif_ids` when SRP is included")
     else
         k_srp_cannonball = 0.0
         idx_sun = 0
     end
 
     if include_drag
-        if isnothing(f_density)
-            @error "f_density must be provided when drag is included"
-        end
-        if isnothing(frame_PCPF)
-            @error "frame_PCPF must be provided when drag is included"
-        end
+        isnothing(f_density) && error("`f_density` must be provided when drag is included")
+        isnothing(frame_PCPF) && error("`frame_PCPF` must be provided when drag is included")
         k_drag = get_drag_coefficient(DU, TU, VU, drag_Cd, drag_Am)
     else
         k_drag = 0.0
@@ -225,7 +244,8 @@ end
 function _interpolate_ephemerides(naif_ids, naif_frame, abcorr, center_id, TU, span, dt, frame_PCPF)
     isnothing(span) && error("InterpParameters require `interpolate_ephem_span`.")
 
-    N_interp = Int(ceil((span[2] - span[1]) / dt))
+    # N intervals of at most `dt` -> N + 1 nodes, so the node spacing never exceeds `dt`
+    N_interp = Int(ceil((span[2] - span[1]) / dt)) + 1
     ets_interp = range(span[1], span[2], N_interp)
 
     interpolated_ephems = InterpolatedEphemeris[]
