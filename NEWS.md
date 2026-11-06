@@ -2,7 +2,28 @@
 
 ## Unreleased
 
-Changes relative to v0.2.3 (the `Project.toml` version is not bumped yet).
+Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
+
+### Breaking changes
+
+- **`EphemeridesParameters` reject aberration corrections.** The Ephemerides.jl /
+  FrameTransformations.jl backend only returns geometric states, so an `abcorr` such as
+  `"LT+S"` used to be accepted and **silently ignored**: the dynamics were identical to
+  `"NONE"`, unlike `SpiceParameters` with the same `abcorr`. Any value other than `"NONE"`
+  now throws an `ArgumentError`. This applies to the constructor (including
+  `HighFidelityEphemerisModelParameters` with Ephemerides inputs) and to
+  `params.abcorr = ...`. The EOMs, STMs and GVEs also re-check it on every evaluation.
+  Use `SpiceParameters` for aberration-corrected dynamics.
+- **`abcorr` is stored in canonical spelling for every backend.** ASCII letters are
+  uppercased and spaces removed, e.g. `" lt + s "` is stored as `"LT+S"`, both at
+  construction and on assignment. SPICE ignores exactly these differences, so results
+  are unchanged; only code that reads `params.abcorr` back sees the difference. Other
+  characters (tabs, non-ASCII) are kept, so strings that SPICE rejects are still
+  rejected.
+
+## v0.3.0
+
+Changes relative to v0.2.3.
 
 ### Breaking changes
 
