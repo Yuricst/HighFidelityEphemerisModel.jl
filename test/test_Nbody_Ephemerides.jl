@@ -87,20 +87,41 @@ test_ephemerides_rejects_aberration_correction = function()
     DU = 1.0
     et0 = 0.0
 
-    @test_throws ErrorException HighFidelityEphemerisModel.EphemeridesParameters(
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, "LT+S";
         ephemerides_files = _ephemerides_test_spk(),
     )
+
+    # case/whitespace-insensitive "none" is accepted and stored canonically
+    parameters_lc = HighFidelityEphemerisModel.EphemeridesParameters(
+        et0, DU, GMs, naif_ids, naif_frame, " none ";
+        ephemerides_files = _ephemerides_test_spk(),
+    )
+    @test parameters_lc.abcorr == "NONE"
 
     parameters = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, "NONE";
         ephemerides_files = _ephemerides_test_spk(),
     )
-    parameters.abcorr = "LT+S"
-
     x0 = [1.0, 0.1, 0.2, 0.0, 0.3, -0.1]
-    @test_throws ErrorException HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters, 0.0)
-    @test_throws ErrorException HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, parameters, 0.0)
+    mee0 = [1.0, 0.01, 0.02, 0.01, 0.0, 0.3]
+    dx = zeros(6)
+    dx_stm = zeros(42)
+    x_stm0 = [x0; vec(Matrix{Float64}(I, 6, 6))]
+    @test HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters, 0.0) isa Vector{Float64}
+    @test HighFidelityEphemerisModel.gve_mee_Nbody(mee0, parameters, 0.0) isa AbstractVector
+
+    # a later mutation of `abcorr` must not be silently ignored by any entry point
+    parameters.abcorr = "LT+S"
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_Nbody_Ephemerides(x0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_NbodySH_Ephemerides(x0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_Nbody_Ephemerides!(dx, x0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_NbodySH_Ephemerides!(dx, x0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_Nbody!(dx, x0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.eom_stm_Nbody_Ephemerides_fd!(dx_stm, x_stm0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.gve_mee_Nbody(mee0, parameters, 0.0)
+    @test_throws "only support abcorr" HighFidelityEphemerisModel.gve_kep_NbodySH(
+        [1.0, 0.1, 0.2, 0.3, 0.4, 0.5], parameters, 0.0)
 end
 
 
