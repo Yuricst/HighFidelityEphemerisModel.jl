@@ -13,11 +13,6 @@ include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
 furnsh_kernels()
 verbose = false
 
-@testset "Ephemeris interpolation" begin
-    include("test_interpolate_ephem.jl")
-    include("test_interpolate_transformation.jl")
-end
-
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
     include("test_sun_analytic.jl")
@@ -26,7 +21,6 @@ end
     include("test_eom_dispatch.jl")
     include("test_parameters.jl")
     include("test_Nbody_SPICE.jl")
-    include("test_Nbody_Interp.jl")
     include("test_Nbody_Ephemerides.jl")
     include("test_Nbody_ensemble.jl")
 end
@@ -36,7 +30,6 @@ end
     include("test_NbodySH_SPICE.jl")
     include("test_NbodySH_Ephemerides.jl")
     include("test_Earth_Ephemerides.jl")
-    include("test_NbodySH_Interp.jl")
     include("test_NbodySH_ensemble.jl")
 end
 

@@ -72,60 +72,6 @@ end
 
 
 """
-    InterpParameters{SH,FA,FD}
-
-Parameters for the N-body (+ spherical harmonics, SRP, drag) dynamics in which body
-positions and the inertial-to-body-fixed rotation are spline-interpolated from SPICE
-samples taken at construction (`interpolate_ephem_span`, `interpolation_time_step`).
-
-# Construction
-
-    InterpParameters(et0, DU, GMs, naif_ids, naif_frame = "J2000", abcorr = "NONE"; kwargs...)
-
-`et0` is the reference epoch (TDB seconds past J2000), `DU` the canonical length unit
-in km (any `Real`; stored as `Float64`), `GMs` the gravitational parameters (km³/s²) of
-the bodies `naif_ids`, the first of which is the central body. Common keyword arguments:
-`filepath_spherical_harmonics`, `nmax`, `frame_PCPF`, `include_srp`, `srp_Cr`, `srp_Am`,
-`srp_P0`, `include_drag`, `drag_Cd`, `drag_Am`, `f_density`, `omega_atm`, `nu`,
-`use_canonical_scales`.
-Backend-specific keyword arguments: `interpolate_ephem_span::Vector{Float64}` (required), `interpolation_time_step`.
-
-Fields can be read and assigned as usual; fields whose type is a type parameter
-(`spherical_harmonics_data`, `factorial_alias`, `f_density`) only accept values of
-the same type (construct new parameters to change e.g. the density model type).
-`copy(params)` gives an independently mutable copy that shares the heavy data.
-"""
-mutable struct InterpParameters{SH,FA,FD} <: HighFidelityEphemerisModelParameters
-    et0::Float64
-    DU::Float64
-    TU::Float64
-    VU::Float64
-
-    GMs::Vector{Float64}
-    mus::Vector{Float64}
-    naif_ids::Vector{String}
-    naif_frame::String
-    abcorr::String
-    interpolated_ephems::Vector{InterpolatedEphemeris}
-    spherical_harmonics_data::SH
-    frame_PCPF::Union{Nothing,String}
-    factorial_alias::FA
-    interpolated_transformation::Union{Nothing,InterpolatedTransformation}
-
-    include_srp::Bool
-    k_srp_cannonball::Float64
-    idx_sun::Int
-
-    include_drag::Bool
-    k_drag::Float64
-    omega_atm::Vector{Float64}
-    f_density::FD
-
-    u::Vector
-end
-
-
-"""
     EphemeridesParameters{SH,FA,EB,FD}
 
 Parameters for the N-body (+ spherical harmonics, SRP, drag) dynamics in which body
@@ -202,9 +148,9 @@ Copy of HFEM parameters that is safe to mutate independently of the original.
 
 Scalars (e.g. `k_srp_cannonball`, `k_drag`) and the small mutable vectors
 (`GMs`, `mus`, `naif_ids`, `omega_atm`, `u`) are independent on the copy.
-Heavy or read-only data (ephemerides provider/frame system, interpolated
-ephemerides/transformation, spherical harmonics coefficients, `f_density`) are
-shared with the original and must not be mutated in place.
+Heavy or read-only data (ephemerides provider/frame system, spherical
+harmonics coefficients, `f_density`) are shared with the original and must not
+be mutated in place.
 
 Intended for per-trajectory parameter changes in an `EnsembleProblem`
 `prob_func`, together with `safetycopy = false` to avoid deep-copying the
@@ -238,10 +184,8 @@ function Base.show(io::IO, params::HighFidelityEphemerisModelParameters)
 end
 
 
-function Base.getproperty(params::Union{SpiceParameters,InterpParameters}, name::Symbol)
+function Base.getproperty(params::SpiceParameters, name::Symbol)
     if name == :ephemerides_provider || name == :ephemerides_frame_system
-        return nothing
-    elseif params isa SpiceParameters && (name == :interpolated_ephems || name == :interpolated_transformation)
         return nothing
     else
         return getfield(params, name)
@@ -254,8 +198,6 @@ function Base.getproperty(params::EphemeridesParameters, name::Symbol)
         return getfield(getfield(params, :ephemerides_backend), :provider)
     elseif name == :ephemerides_frame_system
         return getfield(getfield(params, :ephemerides_backend), :frame_system)
-    elseif name == :interpolated_ephems || name == :interpolated_transformation
-        return nothing
     else
         return getfield(params, name)
     end
@@ -263,19 +205,12 @@ end
 
 
 function Base.propertynames(params::SpiceParameters; private::Bool = false)
-    return (fieldnames(typeof(params))..., :interpolated_ephems, :interpolated_transformation,
-        :ephemerides_provider, :ephemerides_frame_system)
-end
-
-
-function Base.propertynames(params::InterpParameters; private::Bool = false)
     return (fieldnames(typeof(params))..., :ephemerides_provider, :ephemerides_frame_system)
 end
 
 
 function Base.propertynames(params::EphemeridesParameters; private::Bool = false)
-    return (fieldnames(typeof(params))..., :ephemerides_provider, :ephemerides_frame_system,
-        :interpolated_ephems, :interpolated_transformation)
+    return (fieldnames(typeof(params))..., :ephemerides_provider, :ephemerides_frame_system)
 end
 
 
@@ -345,26 +280,6 @@ function _hfem_common_fields(
 end
 
 
-function _interpolate_ephemerides(naif_ids, naif_frame, abcorr, center_id, TU, span, dt, frame_PCPF)
-    isnothing(span) && error("InterpParameters require `interpolate_ephem_span`.")
-
-    # N intervals of at most `dt` -> N + 1 nodes, so the node spacing never exceeds `dt`
-    N_interp = Int(ceil((span[2] - span[1]) / dt)) + 1
-    ets_interp = range(span[1], span[2], N_interp)
-
-    interpolated_ephems = InterpolatedEphemeris[]
-    for ID in naif_ids[2:end]
-        rvs_interp = hcat([spkezr(ID, et, naif_frame, abcorr, center_id)[1] for et in ets_interp]...)
-        push!(interpolated_ephems, InterpolatedEphemeris(ID, ets_interp, rvs_interp, false, TU))
-    end
-
-    interpolated_transformation = isnothing(frame_PCPF) ? nothing :
-        InterpolatedTransformation(ets_interp, naif_frame, frame_PCPF, false, TU)
-
-    return interpolated_ephems, interpolated_transformation
-end
-
-
 function _make_ephemerides_backend(ephemerides_provider, ephemerides_files, ephemerides_frame_system, frame_PCPF)
     if !isnothing(ephemerides_provider) && !isnothing(ephemerides_files)
         error("Provide either `ephemerides_provider` or `ephemerides_files`, not both.")
@@ -403,6 +318,13 @@ function _make_ephemerides_backend(ephemerides_provider, ephemerides_files, ephe
 end
 
 
+const _INTERP_BACKEND_REMOVED_MSG =
+    "the interpolated ephemeris backend (`InterpParameters`, `interpolate_ephem_span`, " *
+    "`interpolation_time_step`) has been removed. Use `EphemeridesParameters` (Julia-native " *
+    "Ephemerides.jl backend: thread-safe and ForwardDiff-compatible; pass e.g. " *
+    "`ephemerides_files`) or `SpiceParameters` instead."
+
+
 function _construct_hfem_parameters(
     backend::Symbol,
     et0::Float64,
@@ -414,8 +336,8 @@ function _construct_hfem_parameters(
     filepath_spherical_harmonics::Union{Nothing,String} = nothing,
     nmax::Int = 4,
     frame_PCPF::Union{Nothing,String} = nothing,
-    interpolate_ephem_span::Union{Nothing,Vector{Float64}} = nothing,
-    interpolation_time_step::Real = 3600.0,
+    interpolate_ephem_span = nothing,     # removed backend; only used to throw a clear error
+    interpolation_time_step = nothing,    # removed backend; only used to throw a clear error
     ephemerides_provider = nothing,
     ephemerides_files::Union{Nothing,String,Vector{String}} = nothing,
     ephemerides_frame_system = nothing,
@@ -431,19 +353,17 @@ function _construct_hfem_parameters(
     nu::Int = 4,
     use_canonical_scales::Bool = true,
 )
-    uses_interp = !isnothing(interpolate_ephem_span)
+    if backend == :interp || !isnothing(interpolate_ephem_span) || !isnothing(interpolation_time_step)
+        throw(ArgumentError(_INTERP_BACKEND_REMOVED_MSG))
+    end
+
     uses_ephem = !isnothing(ephemerides_provider) || !isnothing(ephemerides_files) || !isnothing(ephemerides_frame_system)
 
     if backend == :auto
-        uses_interp && uses_ephem && error("Choose either interpolation or Ephemerides backend inputs, not both.")
-        backend = uses_ephem ? :ephemerides : uses_interp ? :interp : :spice
+        backend = uses_ephem ? :ephemerides : :spice
     elseif backend == :spice
-        (uses_interp || uses_ephem) && error("SpiceParameters do not accept interpolation or Ephemerides backend inputs.")
-    elseif backend == :interp
-        uses_ephem && error("InterpParameters do not accept Ephemerides backend inputs.")
-        !uses_interp && error("InterpParameters require `interpolate_ephem_span`.")
+        uses_ephem && error("SpiceParameters do not accept Ephemerides backend inputs.")
     elseif backend == :ephemerides
-        uses_interp && error("EphemeridesParameters do not accept interpolation backend inputs.")
         !uses_ephem && error("EphemeridesParameters require `ephemerides_provider`, `ephemerides_files`, or `ephemerides_frame_system`.")
     else
         error("Unsupported HFEM parameter backend: $backend")
@@ -460,18 +380,6 @@ function _construct_hfem_parameters(
             c.et0, c.DU, c.TU, c.VU,
             c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
             c.spherical_harmonics_data, c.frame_PCPF, c.factorial_alias,
-            c.include_srp, c.k_srp_cannonball, c.idx_sun,
-            c.include_drag, c.k_drag, c.omega_atm, c.f_density, c.u)
-    elseif backend == :interp
-        interpolated_ephems, interpolated_transformation = _interpolate_ephemerides(
-            c.naif_ids, c.naif_frame, c.abcorr, c.naif_ids[1], c.TU,
-            interpolate_ephem_span, interpolation_time_step, c.frame_PCPF)
-
-        return InterpParameters{typeof(c.spherical_harmonics_data),typeof(c.factorial_alias),typeof(c.f_density)}(
-            c.et0, c.DU, c.TU, c.VU,
-            c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
-            interpolated_ephems, c.spherical_harmonics_data, c.frame_PCPF,
-            c.factorial_alias, interpolated_transformation,
             c.include_srp, c.k_srp_cannonball, c.idx_sun,
             c.include_drag, c.k_drag, c.omega_atm, c.f_density, c.u)
     else
@@ -491,7 +399,6 @@ end
 
 
 SpiceParameters(args...; kwargs...) = _construct_hfem_parameters(:spice, args...; kwargs...)
-InterpParameters(args...; kwargs...) = _construct_hfem_parameters(:interp, args...; kwargs...)
 EphemeridesParameters(args...; kwargs...) = _construct_hfem_parameters(:ephemerides, args...; kwargs...)
 
 
@@ -500,9 +407,10 @@ EphemeridesParameters(args...; kwargs...) = _construct_hfem_parameters(:ephemeri
 
 Backward-compatible constructor that returns the concrete parameter type implied
 by the supplied backend inputs. With no backend inputs it returns
-`SpiceParameters`; with `interpolate_ephem_span` it returns `InterpParameters`;
-with Ephemerides.jl provider/files/frame-system inputs it returns
-`EphemeridesParameters`.
+`SpiceParameters`; with Ephemerides.jl provider/files/frame-system inputs it
+returns `EphemeridesParameters`. Passing `interpolate_ephem_span` or
+`interpolation_time_step` (inputs of the removed interpolated backend) throws an
+`ArgumentError`.
 """
 HighFidelityEphemerisModelParameters(args...; backend::Symbol = :auto, kwargs...) =
     _construct_hfem_parameters(backend, args...; kwargs...)

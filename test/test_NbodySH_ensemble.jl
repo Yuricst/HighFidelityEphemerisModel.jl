@@ -1,5 +1,5 @@
 """
-Test integrating N-body+SH dynamics with SPICE call within eom.
+Test ensemble (EnsembleThreads) vs. serial integration of the N-body+SH dynamics (EphemeridesParameters).
 """
 
 using LinearAlgebra
@@ -7,12 +7,17 @@ using OrdinaryDiffEq
 using SPICE
 using Test
 
+if !@isdefined(hfem_test_kernel)
+    include(joinpath(@__DIR__, "utils.jl"))
+end
+
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
+    furnsh_kernels()
 end
 
 
-test_NbodySH_Interp_ensemble = function(;verbose = false)
+test_NbodySH_Ephemerides_ensemble = function(;verbose = false)
     # define parameters
     naif_ids = ["301", "399", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
@@ -24,15 +29,12 @@ test_NbodySH_Interp_ensemble = function(;verbose = false)
     nmax = 4
 
     et0 = str2et("2026-01-05T00:00:00")
-    etf = et0 + 30 * 86400.0
-    interpolate_ephem_span = [et0, etf]
-    interpolation_time_step = 1000.0
-    parameters = HighFidelityEphemerisModel.InterpParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        interpolate_ephem_span=interpolate_ephem_span,
+    parameters = HighFidelityEphemerisModel.EphemeridesParameters(et0, DU, GMs, naif_ids, naif_frame, abcorr;
         filepath_spherical_harmonics = filepath_spherical_harmonics,
         nmax = nmax,
         frame_PCPF = "MOON_PA",
-        interpolation_time_step = interpolation_time_step,
+        ephemerides_files = [hfem_test_kernel("spk", "de440.bsp"),
+                             hfem_test_kernel("pck", "moon_pa_de440_200625.bpc")],
     )
 
     # initial state (in canonical scale)
@@ -88,7 +90,7 @@ test_NbodySH_Interp_ensemble = function(;verbose = false)
     end
 
     # create ensemble problem
-    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!, x0_stm, tspan, parameters)
+    prob_base = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Ephemerides_fd!, x0_stm, tspan, parameters)
     ensemble_prob = EnsembleProblem(
         prob_base;
         prob_func = prob_func_Nbody_stm
@@ -101,7 +103,7 @@ test_NbodySH_Interp_ensemble = function(;verbose = false)
     # solve in serial
     sols_stm_serial = []
     for i = 1:N_traj
-        prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Interp_fd!, [x0_conditions[i]; reshape(I(6),36)], tspan, parameters)
+        prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_Ephemerides_fd!, [x0_conditions[i]; reshape(I(6),36)], tspan, parameters)
         sol = solve(prob, Vern9(), reltol=1e-14, abstol=1e-14)
         push!(sols_stm_serial, sol)
     end
@@ -121,4 +123,4 @@ test_NbodySH_Interp_ensemble = function(;verbose = false)
 end
 
 
-test_NbodySH_Interp_ensemble(;verbose = false)
+test_NbodySH_Ephemerides_ensemble(;verbose = false)
