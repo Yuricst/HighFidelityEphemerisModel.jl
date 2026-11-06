@@ -144,6 +144,11 @@ the bodies `naif_ids`, the first of which is the central body. Common keyword ar
 `use_canonical_scales`.
 Backend-specific keyword arguments: one of `ephemerides_files`, `ephemerides_provider`, or a prebuilt `ephemerides_frame_system` (the per-thread caches of every Ephemerides.jl provider reachable from it are padded to `Threads.maxthreadid()`).
 
+`abcorr` must be `"NONE"` (case and blanks are ignored): the Ephemerides.jl /
+FrameTransformations.jl backend only returns geometric states, so any aberration
+correction throws an `ArgumentError`, both at construction and on assignment to
+`params.abcorr`. Use `SpiceParameters` for aberration-corrected dynamics.
+
 Fields can be read and assigned as usual; fields whose type is a type parameter
 (`spherical_harmonics_data`, `factorial_alias`, `f_density`, `ephemerides_backend`) only accept values of
 the same type (construct new parameters to change e.g. the density model type).
@@ -190,6 +195,12 @@ function Base.setproperty!(params::HighFidelityEphemerisModelParameters, name::S
             "constructed with `$name::$T`, and this field's type is fixed so that the equations " *
             "of motion are type-stable. Construct new parameters with the desired `$name` instead."
         ))
+    end
+    if name === :abcorr
+        value = convert(String, value)
+        # validate the value as given, so the error shows what the user wrote
+        params isa EphemeridesParameters && _validate_ephemerides_abcorr(value)
+        value = _canonical_abcorr(value)
     end
     return setfield!(params, name, convert(T, value))
 end
@@ -338,6 +349,8 @@ function _hfem_common_fields(
         k_drag = 0.0
     end
 
+    abcorr = _canonical_abcorr(abcorr)
+
     return (; et0, DU, TU, VU, GMs, mus, naif_ids, naif_frame, abcorr,
         spherical_harmonics_data, frame_PCPF, factorial_alias,
         include_srp, k_srp_cannonball, idx_sun,
@@ -365,14 +378,36 @@ function _interpolate_ephemerides(naif_ids, naif_frame, abcorr, center_id, TU, s
 end
 
 
-function _validate_ephemerides_abcorr(abcorr::String)
-    uppercase(strip(abcorr)) == "NONE" && return nothing
+# SPICE ignores case and ASCII blanks (' ') in `abcorr`, and nothing else: tabs, other
+# whitespace and non-ASCII letters make SPICE reject the string. Every backend stores
+# one canonical spelling (e.g. " lt + s " -> "LT+S") that SPICE treats identically, so a
+# string SPICE would reject is never turned into a valid one. The canonical "NONE" also
+# keeps the per-evaluation Ephemerides check on its `== "NONE"` fast path.
+@inline _ascii_uppercase(c::Char) = 'a' <= c <= 'z' ? c - ('a' - 'A') : c
 
-    error(
-        "EphemeridesParameters only support abcorr = \"NONE\" because the " *
+_canonical_abcorr(abcorr::AbstractString) = map(_ascii_uppercase, replace(abcorr, ' ' => ""))
+
+
+# Non-allocating `_canonical_abcorr(abcorr) == "NONE"`.
+function _is_none_abcorr(abcorr::AbstractString)
+    k = 0
+    for c in abcorr
+        c == ' ' && continue
+        k += 1
+        (k <= 4 && _ascii_uppercase(c) == ('N', 'O', 'N', 'E')[k]) || return false
+    end
+    return k == 4
+end
+
+
+function _validate_ephemerides_abcorr(abcorr::AbstractString)
+    _is_none_abcorr(abcorr) && return nothing
+
+    throw(ArgumentError(
+        "EphemeridesParameters only support abcorr = \"NONE\" (got \"$abcorr\") because the " *
         "Ephemerides.jl/FrameTransformations backend returns geometric states. " *
         "Use SpiceParameters or InterpParameters for aberration-corrected trajectories."
-    )
+    ))
 end
 
 
@@ -486,17 +521,15 @@ function _construct_hfem_parameters(
             c.include_srp, c.k_srp_cannonball, c.idx_sun,
             c.include_drag, c.k_drag, c.omega_atm, c.f_density, c.u)
     else
-        _validate_ephemerides_abcorr(c.abcorr)
+        _validate_ephemerides_abcorr(abcorr)   # as given (`c.abcorr` is canonicalized)
 
         ephemerides_backend = _make_ephemerides_backend(
             ephemerides_provider, ephemerides_files, ephemerides_frame_system, c.frame_PCPF)
 
-        # validated above; stored in canonical spelling so the per-evaluation
-        # check in `_check_backend_params` takes its non-allocating fast path
         return EphemeridesParameters{typeof(c.spherical_harmonics_data),typeof(c.factorial_alias),
                 typeof(ephemerides_backend),typeof(c.f_density)}(
             c.et0, c.DU, c.TU, c.VU,
-            c.GMs, c.mus, c.naif_ids, c.naif_frame, "NONE",
+            c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
             c.spherical_harmonics_data, c.frame_PCPF, c.factorial_alias,
             ephemerides_backend,
             c.include_srp, c.k_srp_cannonball, c.idx_sun,

@@ -23,14 +23,16 @@ _hfem_backend(::EphemeridesParameters) = _EphemeridesBackend()
 
 # --- per-evaluation checks of mutable parameter fields a backend cannot honour.
 #
-# `abcorr` is validated at construction, but it is a mutable field, so it is re-checked
-# here: the Ephemerides.jl/FrameTransformations backend only returns geometric states and
-# would otherwise silently ignore a later `params.abcorr = "LT+S"`. Called from
-# `_hfem_accel`, so it covers the Cartesian EOMs, their STM variants, and the GVEs.
+# The Ephemerides.jl/FrameTransformations backend only returns geometric states, so it
+# would silently ignore an aberration correction. `abcorr` is validated at construction
+# and on `params.abcorr = ...`; this cheap per-evaluation re-check is a backstop for
+# writes that bypass `setproperty!` (e.g. `setfield!`). Called from `_hfem_accel`, so it
+# covers the Cartesian EOMs, their STM/Jacobian variants, and the GVEs.
 @inline _check_backend_params(::_HFEMBackend, params) = nothing
 
 @inline function _check_backend_params(::_EphemeridesBackend, params)
-    # fast path: the constructor stores the canonical spelling "NONE"
+    # fast path: `abcorr` is stored in canonical spelling (see `_canonical_abcorr`);
+    # the fallback is also non-allocating for a valid non-canonical "none"
     params.abcorr == "NONE" || _validate_ephemerides_abcorr(params.abcorr)
     return nothing
 end
