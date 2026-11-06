@@ -14,7 +14,7 @@ function _drag_stm_parameters_jacchia_roberts(et0)
     f_density = HighFidelityEphemerisModel.jacchia_roberts_f_density(frame_PCPF="IAU_EARTH")
     return HighFidelityEphemerisModel.SpiceParameters(
         et0, 6378.0, GMs, naif_ids, "J2000", "NONE";
-        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/earth/GGM03S.tab"),
         nmax = 2,
         frame_PCPF = "IAU_EARTH",
         include_drag = true,
@@ -191,6 +191,125 @@ function test_geodetic_conversion()
 end
 
 
+function test_jacchia_roberts_spice_free()
+    H = HighFidelityEphemerisModel
+    et = str2et("2020-01-01T00:00:00")
+    f_spice = H.jacchia_roberts_f_density()
+    f_analytic = H.jacchia_roberts_f_density(sun_model=:analytic)
+    f_user = H.jacchia_roberts_f_density(
+        sun_position = et -> spkpos("SUN", et, "IAU_EARTH", "NONE", "EARTH")[1],
+    )
+    @test_throws ArgumentError H.jacchia_roberts_f_density(sun_model=:foo)
+    for alt in (200.0, 400.0, 800.0)
+        r_km = _pcpf_position(et, alt)
+        ρ_spice = f_spice(et, r_km)
+        # same Sun and ellipsoid (pck00011 radii) -> only the UTC source differs (built-in
+        # leap-second table vs SPICE deltet), which agree to well below a microsecond
+        @test f_user(et, r_km) ≈ ρ_spice rtol=1e-10
+        # analytic Sun (~0.01-0.1 deg from the SPICE Sun in IAU_EARTH)
+        @test f_analytic(et, r_km) ≈ ρ_spice rtol=2e-3
+    end
+    # regression values of the SPICE path are reproduced by the SPICE-free path
+    @test f_analytic(et, _pcpf_position(et, 400.0)) ≈ 5.591768363368083e-12 rtol=2e-3
+
+    # explicit ellipsoid
+    f_wgs = H.jacchia_roberts_f_density(sun_model=:analytic, R_equatorial_km=6378.137,
+        flattening=1/298.257223563)
+    @test isfinite(f_wgs(et, _pcpf_position(et, 400.0)))
+
+    # ForwardDiff through the SPICE-free callback
+    r_km = _pcpf_position(et, 350.0) + [0.0, 200.0, 900.0]
+    grad_ad = ForwardDiff.gradient(r -> f_analytic(et, r), r_km)
+    grad_num = map(1:3) do i
+        e = zeros(3); e[i] = 1e-3
+        (f_analytic(et, r_km + e) - f_analytic(et, r_km - e)) / 2e-3
+    end
+    @test grad_ad ≈ grad_num rtol=1e-5
+
+    # thread safety of the SPICE-free callback
+    ets = et .+ 900.0 .* (0:99)
+    rs = [[6778.0 * cos(0.2k), 6778.0 * sin(0.2k), 500.0 * sin(0.05k)] for k in 0:99]
+    serial = [f_analytic(e, r) for (e, r) in zip(ets, rs)]
+    threaded = zeros(length(ets))
+    Threads.@threads for i in eachindex(ets)
+        threaded[i] = f_analytic(ets[i], rs[i])
+    end
+    @test threaded == serial
+end
+
+
+"""BigFloat reference geodetic height (fixed-point iteration on the latitude)."""
+function _geodetic_height_reference(r, Re, flat)
+    setprecision(BigFloat, 200) do
+        x, y, z = BigFloat.(r)
+        a = BigFloat(Re)
+        e2 = BigFloat(flat) * (2 - BigFloat(flat))
+        p = sqrt(x^2 + y^2)
+        φ = atan(z, p * (1 - e2))
+        for _ in 1:60
+            N = a / sqrt(1 - e2 * sin(φ)^2)
+            φ = atan(z + e2 * N * sin(φ), p)
+        end
+        return p * cos(φ) + z * sin(φ) - a * sqrt(1 - e2 * sin(φ)^2)
+    end
+end
+
+
+function test_geodetic_conversion_near_axis()
+    H = HighFidelityEphemerisModel
+    Re = 6378.137
+    flat = 1 / 298.257223563
+    geo_h(r) = H._geodetic_lon_lat_alt(r, Re, flat)[3]
+    # height accurate to ~1e-12 km over all latitudes (incl. the poles) and heights
+    worst = 0.0
+    for lat_deg in -90.0:1.5:90.0, alt in (-50.0, 100.0, 500.0, 1000.0)
+        r = georec(0.3, deg2rad(lat_deg), alt, Re, flat)
+        worst = max(worst, abs(geo_h(r) - Float64(_geodetic_height_reference(r, Re, flat))))
+    end
+    @test worst < 1e-10
+
+    # gradient of the height vs a BigFloat central difference, on / near / away from the axis
+    # (on both sides of the series switch at p = 10 m)
+    for p in (0.0, 1e-12, 1e-9, 1e-6, 1e-3, 9.99e-3, 1.001e-2, 1.0, 100.0),
+        z in (6356.752 + 400.0, -(6356.752 + 50.0))
+        r = [p * cos(0.7), p * sin(0.7), z]
+        g_ad = ForwardDiff.gradient(geo_h, r)
+        @test all(isfinite, g_ad)
+        g_ref = setprecision(BigFloat, 200) do
+            h = big"1e-30"
+            [(_geodetic_height_reference(big.(r) .+ h .* (1:3 .== i), Re, flat) -
+              _geodetic_height_reference(big.(r) .- h .* (1:3 .== i), Re, flat)) / (2h) for i in 1:3]
+        end
+        @test norm(g_ad - Float64.(g_ref)) < 1e-12
+        @test abs(geo_h(r) - Float64(_geodetic_height_reference(r, Re, flat))) < 1e-10
+    end
+
+    # exactly on the axis with dual numbers: no MethodError / NaN, zero lateral derivative
+    J = ForwardDiff.jacobian(r -> collect(H._geodetic_lon_lat_alt(r, Re, flat)), [0.0, 0.0, 6800.0])
+    @test all(isfinite, J)
+    @test J[3, :] ≈ [0.0, 0.0, 1.0] atol=1e-15
+
+    # density callbacks over the pole: finite gradients that match central differences
+    et = str2et("2024-06-01T10:00:00")
+    for f in (HighFidelityEphemerisModel.harris_priester_f_density(),
+              HighFidelityEphemerisModel.jacchia_roberts_f_density(sun_model=:analytic))
+        for r in ([0.0, 0.0, 6756.75], [1e-9, 0.0, 6756.75], [0.3, -0.2, -6756.75])
+            g = ForwardDiff.gradient(q -> f(et, q), r)
+            @test all(isfinite, g)
+        end
+        r = [0.0, 0.0, 6756.75]
+        g = ForwardDiff.gradient(q -> f(et, q), r)
+        dz = (f(et, r + [0, 0, 1e-3]) - f(et, r - [0, 0, 1e-3])) / 2e-3
+        @test g[3] ≈ dz rtol=1e-5
+    end
+    # HP is a smooth function of position across the axis: gradient continuous
+    f = HighFidelityEphemerisModel.harris_priester_f_density()
+    g0 = ForwardDiff.gradient(q -> f(et, q), [0.0, 0.0, 6756.75])
+    g1 = ForwardDiff.gradient(q -> f(et, q), [1e-6, 1e-6, 6756.75])
+    @test norm(g1 - g0) < 1e-6 * norm(g0)
+end
+
+
 test_jacchia_roberts_f_density_api()
 test_jacchia_roberts_low_altitude()
 test_geodetic_conversion()
@@ -200,3 +319,5 @@ test_jacchia_roberts_vs_harris_priester()
 test_jacchia_roberts_eom()
 test_jacchia_roberts_forwarddiff()
 test_jacchia_roberts_eom_stm()
+test_jacchia_roberts_spice_free()
+test_geodetic_conversion_near_axis()
