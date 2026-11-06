@@ -20,9 +20,11 @@ end
 
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
+    include("test_sun_analytic.jl")
     include("test_drag_harrispriester.jl")
     include("test_drag_jacchiaroberts.jl")
     include("test_eom_dispatch.jl")
+    include("test_parameters.jl")
     include("test_Nbody_SPICE.jl")
     include("test_Nbody_Interp.jl")
     include("test_Nbody_Ephemerides.jl")
@@ -33,6 +35,7 @@ end
     include("test_spherical_harmonics.jl")
     include("test_NbodySH_SPICE.jl")
     include("test_NbodySH_Ephemerides.jl")
+    include("test_Earth_Ephemerides.jl")
     include("test_NbodySH_Interp.jl")
     include("test_NbodySH_ensemble.jl")
 end
@@ -53,4 +56,10 @@ if get(ENV, "JULIA_COVERAGE", "") == "true"
     @testset "Module coverage        " begin
         include("coverage.jl")
     end
+end
+
+@testset "Gauss variational EOM  " begin
+    include("test_gve.jl")
+    include("test_gve_eq.jl")
+    include("test_gve_validation.jl")
 end

@@ -15,6 +15,42 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
     STM_tf   = reshape(sol.u[end][7:42],6,6)    # final 6-by-6 STM
     ```
 
+## Propagation formulations
+
+Cartesian propagation is the general/default HFEM formulation and has no
+orbital-element coordinate singularities. HFEM also provides Gauss variational
+equations (GVE) that reuse the same Cartesian force models.
+
+Cartesian coordinates do not remove physical force-model singularities. The
+point-mass model remains singular at zero central-body distance and when the
+spacecraft coincides with another point-mass gravitating body.
+
+| Formulation | State ordering | Domain and intended use |
+|---|---|---|
+| Cartesian | `[x, y, z, vx, vy, vz]` | Broadest robustness and generality; no orbital-element coordinate singularities. |
+| Modified equinoctial (MEE) | `[p, f, g, h, k, L]` | Elliptic, parabolic, and hyperbolic states, including crossings of `e = 1`; the standard prograde chart is singular exactly at `i = pi`. |
+| Classical Keplerian | `[a, e, i, Omega, omega, true_anomaly]` | Useful for completeness, reference, validation, and restricted-domain applications; singular for circular and equatorial states and ill-conditioned at `e = 1`, which it cannot cross smoothly. |
+| Ordinary equinoctial | `[a, f, g, h, k, lambda]` | Elliptic-only (`a > 0`, `e < 1`); regular at circular and prograde-equatorial states but singular exactly at `i = pi`. |
+| Keplerian two-body | `[a, e, i, Omega, omega, true_anomaly]` | Reference, validation, simplified analysis, and practical central-body-dominated propagation. |
+
+Ordinary equinoctial elements are useful for bound satellites, debris,
+asteroids, planets, and other elliptic-orbit applications. In optimization,
+however, an intermediate iterate can become hyperbolic even when the desired
+solution is elliptic; this representation is restrictive unless the iterate
+domain is controlled.
+
+The two-body model can be an appropriate approximation when one central body
+dominates, including some low-thrust interplanetary cruise phases. Use N-body
+gravity when multiple bodies have meaningful influence, and spherical
+harmonics when point-mass gravity is inadequate near a nonspherical body.
+
+For every GVE force model, HFEM reconstructs Cartesian position and velocity,
+evaluates the corresponding existing inertial Cartesian EOM, removes the
+central two-body acceleration, projects the total remaining perturbation once
+into RTN, and applies the selected variational equations. See
+[Gauss variational equations](@ref) for examples and detailed limitations.
+Third-body accelerations are not evaluated directly in RTN.
+
 ## Dynamics model
 
 In `HighFidelityEphemerisModel.jl`, the dynamcis consists of the central gravitational term, together with the following perturbations:
@@ -133,6 +169,42 @@ W_{n m}=\left(\frac{R_{\oplus}}{r}\right)^{n+1} \cdot P_{n m}(\sin \phi) \cdot \
 
 (c.f. Montenbruck & Gill Chapter 3.2)
 
+The expressions above use un-normalized coefficients and functions, which overflow or
+underflow `Float64` and lose accuracy at high degree. The implementation therefore works
+with the **fully-normalized** quantities $\bar{C}_{nm} = C_{nm}/N_{nm}$,
+$\bar{V}_{nm} = N_{nm} V_{nm}$, $\bar{W}_{nm} = N_{nm} W_{nm}$, with
+$N_{nm} = \sqrt{(2-\delta_{m0})(2n+1)(n-m)!/(n+m)!}$ (M&G Eq. (3.13)), so that
+$C_{nm} V_{nm} = \bar{C}_{nm} \bar{V}_{nm}$. The $\bar{V}_{nm}, \bar{W}_{nm}$ are
+evaluated in Cartesian coordinates with the normalized Cunningham (forward-column)
+recursion
+
+```math
+\bar{V}_{mm} = D_m \left( \tilde{x}\, \bar{V}_{m-1,m-1} - \tilde{y}\, \bar{W}_{m-1,m-1} \right),
+\qquad
+\bar{V}_{nm} = A_{nm}\, \tilde{z}\, \bar{V}_{n-1,m} - B_{nm}\, \tilde{\rho}\, \bar{V}_{n-2,m}
+```
+
+(and likewise for $\bar{W}$), where $\tilde{x} = xR/r^2$, $\tilde{y} = yR/r^2$,
+$\tilde{z} = zR/r^2$, $\tilde{\rho} = R^2/r^2$, $\bar{V}_{00} = R/r$,
+$A_{nm} = \sqrt{(2n-1)(2n+1)/((n-m)(n+m))}$,
+$B_{nm} = \sqrt{(2n+1)(n+m-1)(n-m-1)/((2n-3)(n+m)(n-m))}$ and
+$D_m = \sqrt{k_m (2m+1)/(2m)}$ ($k_1 = 2$, otherwise 1). The factorial ratios of the
+acceleration formulas are combined with the normalization ratios into precomputed
+coefficients. The whole sum is evaluated in a single recursion pass
+($\mathcal{O}(n_{\max}^2)$ operations, $\mathcal{O}(n_{\max})$ memory), without
+factorials or `BigInt`, is non-singular at the poles, generic over `Real` (ForwardDiff
+compatible), and stable to high degree: it is tested up to degree 180 (GGM03S); on a desktop CPU
+one evaluation takes ~20 µs at degree 100 and ~60 µs at degree 180. Underflow of sectoral terms near the poles at degrees above
+~1500 (Holmes & Featherstone, 2002) is not handled. Gravity files are read in the PDS
+SHADR `.tab` format, fully normalized or un-normalized (normalized on load).
+
+!!! warning
+
+    The gravity field must be that of the central body (`naif_ids[1]`) and `frame_PCPF`
+    must be the body-fixed frame the field is expressed in, e.g. `data/earth/GGM03S.tab`
+    with `"ITRF93"` (or the lower-accuracy `"IAU_EARTH"`) for Earth-centred problems, and
+    `data/luna/gggrx_1200l_sha_*.tab` with `"MOON_PA"` for Moon-centred problems.
+
 
 ### Solar Radiation Pressure 
 
@@ -178,6 +250,46 @@ The pre-computed coefficient $k_{\mathrm{drag}}$ absorbs $\tfrac{1}{2} C_d (A/m)
 \boldsymbol{a}_{\mathrm{drag}} = -k_{\mathrm{drag}}\,\rho\,|\mathbf{v}_{\mathrm{rel}}|\,\mathbf{v}_{\mathrm{rel}}.
 ```
 
+The density callback `f_density(et, r_km)` receives the epoch and the spacecraft position
+in km in the body-fixed frame `frame_PCPF`. Two Earth models are provided:
+
+- `harris_priester_f_density(...)`: the Harris-Priester model of Montenbruck & Gill
+  (*Satellite Orbits*, §3.5.2), with geodetic altitude above an oblate ellipsoid
+  (WGS-84 by default), exponential interpolation of the antapex/apex density tables
+  $\rho_{\min}(h)$, $\rho_{\max}(h)$ (constant scale height per table interval), and the
+  diurnal bulge
+
+  ```math
+  \rho = \rho_{\min}(h) + \left(\rho_{\max}(h) - \rho_{\min}(h)\right) \cos^n(\psi/2),
+  ```
+
+  where $\psi$ is the angle between the position vector and the bulge apex, located at the
+  Sun's declination and lagging the Sun by 30° in right ascension (≈ 14h local time).
+  M&G recommend $n = 2$ for low-inclination and $n = 6$ (the default) for polar orbits.
+  By default the Sun comes from a SPICE-free low-precision analytic model (≈ 0.01° from
+  ITRF93), so the callback is thread-safe; a user `sun_position(et)` function may be
+  supplied instead. Caveats:
+
+  - **`r_km` must be Earth-fixed.** The bulge is placed using the Sun in an Earth-fixed
+    frame, so `frame_PCPF` must be an Earth body-fixed frame (`"ITRF93"`, `"IAU_EARTH"`);
+    with an inertial `frame_PCPF` the bulge is at the wrong local time (no error is
+    raised). A user `sun_position` must return the Sun in the same frame as `r_km`.
+  - **Zero density outside 100-1000 km.** As in M&G, the density is zero below 100 km
+    (geodetic) and above 1000 km. A re-entering spacecraft therefore loses all drag below
+    100 km, where the density drops discontinuously from ≈5e-7 kg/m³ to 0: terminate the
+    propagation with an altitude event or use another model there
+    (`jacchia_roberts_f_density` throws an error at or below 100 km).
+  - **Only C⁰ in altitude.** $\partial\rho/\partial h$ jumps at each table height
+    (every 10 km below 300 km, 20-40 km above). ForwardDiff STMs are still the model's
+    derivative almost everywhere, but on orbits that cross table heights they degrade
+    against finite-difference STMs (≈4e-4 discrepancy observed over a few hours, vs
+    ≲1e-5 within one interval), and gradient-based optimization may see a non-smooth
+    objective.
+- `jacchia_roberts_f_density(...)`: the Jacchia-Roberts model (GMAT heritage) with
+  constant F10.7, F10.7a and Kp. With the default `sun_model = :spice` it calls SPICE in
+  every evaluation and is **not thread-safe**; use `sun_model = :analytic` or a
+  `sun_position` function for a SPICE-free, thread-safe callback.
+
 
 ## Parameters and equations of motion
 
@@ -212,6 +324,21 @@ The table below summarizes the models. Note:
 !!! note
 
     In order to use Julia's dual numbers, use `EphemeridesParameters` or `InterpParameters`, which avoid direct SPICE calls inside the EOM.
+
+!!! note
+
+    `EnsembleThreads` compatibility also requires a thread-safe `f_density` when drag is
+    enabled: the default `harris_priester_f_density()` and
+    `jacchia_roberts_f_density(sun_model = :analytic)` are; the SPICE-based
+    `jacchia_roberts_f_density()` is not (CSPICE is not thread-safe).
+
+!!! note
+
+    The built-in Ephemerides.jl frame system supports the body-fixed frames `"MOON_PA"`
+    (lunar binary PCK, e.g. `moon_pa_de440_200625.bpc`), `"ITRF93"` (binary Earth PCK,
+    e.g. `earth_latest_high_prec.bpc`) and `"IAU_EARTH"` (IAU 2009 rotation model, no
+    kernel needed). Other `frame_PCPF` values raise an error; a custom
+    `FrameTransformations.FrameSystem` can be passed as `ephemerides_frame_system`.
 
 !!! warning
 

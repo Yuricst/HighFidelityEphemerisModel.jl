@@ -1,5 +1,6 @@
 module HighFidelityEphemerisModel
 
+using AstrodynamicsCore
 using Ephemerides
 using FrameTransformations
 using Dierckx
@@ -14,6 +15,7 @@ include("perturbations/third_body.jl")
 include("perturbations/spherical_harmonics.jl")
 include("perturbations/solar_radiation_pressure.jl")
 include("perturbations/drag.jl")
+include("perturbations/sun_analytic.jl")
 include("perturbations/harrispriester.jl")
 include("perturbations/jacchiaroberts.jl")
 
@@ -22,6 +24,7 @@ include("transformation_interpolation.jl")
 include("ephemerides.jl")
 include("parameters.jl")
 
+include("eoms/eom_common.jl")
 include("eoms/eom_Nbody_SPICE.jl")
 include("eoms/eom_Nbody_Interp.jl")
 include("eoms/eom_Nbody_Ephemerides.jl")
@@ -30,6 +33,7 @@ include("eoms/eom_NbodySH_SPICE.jl")
 include("eoms/eom_NbodySH_Interp.jl")
 include("eoms/eom_NbodySH_Ephemerides.jl")
 include("eoms/eom_dispatch.jl")
+include("eoms/gve.jl")
 
 include("events.jl")
 include("spk/utils.jl")
@@ -49,6 +53,11 @@ export HighFidelityEphemerisModelParameters, AbstractHFEMParameters
 export SpiceParameters, InterpParameters, EphemeridesParameters, EphemeridesBackend
 
 export eom_Nbody!, eom_Nbody, eom_NbodySH!, eom_NbodySH
+export pxform_inr2rtn, pxform_rtn2inr, project_inr_to_rtn!
+export gve_mee_derivs!, gve_mee_Nbody!, gve_mee_Nbody, gve_mee_NbodySH!, gve_mee_NbodySH
+export eom_kep_twobody!, eom_kep_twobody
+export gve_kep_derivs!, gve_kep_Nbody!, gve_kep_Nbody, gve_kep_NbodySH!, gve_kep_NbodySH
+export gve_eq_derivs!, gve_eq_Nbody!, gve_eq_Nbody, gve_eq_NbodySH!, gve_eq_NbodySH
 export eom_Nbody_SPICE!, eom_Nbody_SPICE, eom_stm_Nbody_SPICE!, eom_stm_Nbody_SPICE_fd!
 export eom_Nbody_Interp!, eom_Nbody_Interp, eom_stm_Nbody_Interp!, eom_stm_Nbody_Interp_fd!
 export eom_Nbody_Ephemerides!, eom_Nbody_Ephemerides, eom_stm_Nbody_Ephemerides!, eom_stm_Nbody_Ephemerides_fd!
@@ -58,7 +67,9 @@ export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
 export eom_NbodySH_Ephemerides!, eom_NbodySH_Ephemerides, eom_stm_NbodySH_Ephemerides_fd!
 
 export get_trueanomaly_event
-export HarrisPriesterModel, harris_priester_f_density
+export HarrisPriesterModel, harris_priester_f_density, harris_priester_density
+export sun_position_analytic, sun_position_earth_fixed_analytic, ephemerides_sun_position_function
+export SphericalHarmonicsField, SphericalHarmonicsCoefficients
 export JacchiaRobertsModel, jacchia_roberts_f_density, JacchiaRobertsGeomagneticExposphericParams
 
 export ode_sol_to_spk

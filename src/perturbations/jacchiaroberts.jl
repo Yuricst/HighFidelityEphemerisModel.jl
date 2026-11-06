@@ -37,6 +37,9 @@ const _JR_DAY58_EPOCH_MJD = 36204.0
 const _JR_DEFAULT_R_POLAR_KM = 6356.766
 const _JR_DEFAULT_RE_KM = 6378.0
 const _JR_DEFAULT_UTC_MJD = 58849.0
+# IAU 2009 / pck00011 Earth radii, used as defaults in the SPICE-free modes
+const _JR_IAU_EARTH_RE_KM = 6378.1366
+const _JR_IAU_EARTH_RP_KM = 6356.7519
 
 
 struct JacchiaRobertsState{T<:Real}
@@ -157,13 +160,18 @@ function _jr_compute_roots(tx::Real)
     aux[1, 2] = 0.0
     _roots!(c_star, aux, 1)
     root1 = aux[1, 1]
+    # Deflate degree 4 -> 3; `_roots!` infers the degree from the vector length,
+    # so the quotient must be truncated (GMAT passes the reduced degree explicitly).
     _deflate_polynomial!(c_star, root1, c_star)
+    c_star = c_star[1:4]
 
     aux[1, 1] = 200.0
     aux[1, 2] = 0.0
     _roots!(c_star, aux, 1)
     root2 = aux[1, 1]
+    # Deflate degree 3 -> 2
     _deflate_polynomial!(c_star, root2, c_star)
+    c_star = c_star[1:3]
 
     aux[1, 1] = 10.0
     aux[1, 2] = 125.0
@@ -174,34 +182,62 @@ function _jr_compute_roots(tx::Real)
 end
 
 
+# Below this distance from the polar axis (km) the geodetic conversion switches to a
+# series in p² = x² + y², which is exact to O(p⁴ e²/R³) (≪ 1e-15 km there).
+const _GEODETIC_AXIS_P_KM = 1.0e-2
+
 """
     _geodetic_lon_lat_alt(r_km, Re, flat)
 
-ForwardDiff-compatible geodetic longitude, latitude, and altitude on an oblate spheroid.
+ForwardDiff-compatible geodetic longitude, latitude, and altitude (km) on an oblate
+spheroid with equatorial radius `Re` and flattening `flat`.
 
-Uses Bowring's closed-form latitude (matches SPICE `recgeo` at Float64 to within regression tolerance).
+Away from the polar axis, the latitude is Bowring's closed form and the height is
+evaluated as
+
+    h = p cos φ + z sin φ - Re sqrt(1 - e² sin² φ),     p = sqrt(x² + y²),
+
+which is stationary in φ at the exact geodetic latitude, so the small error of Bowring's
+latitude enters `h` (and its derivatives) only to second order (< 1e-9 km for
+|h| ≤ 1000 km), and which has no `p / cos φ` singularity. Within
+`_GEODETIC_AXIS_P_KM` (10 m) of the axis, the osculating-sphere series
+
+    h = h₀ + p² / (2 (R_c + h₀)),   φ = ±(π/2 - p / (R_c + h₀)),
+    h₀ = |z| - Re (1 - flat),       R_c = Re / (1 - flat)   (polar radius of curvature)
+
+is used instead. It depends on `x, y` through `p²` only, so `h` and its gradient are
+smooth and correct on and near the axis (including exactly on it with dual numbers).
+The latitude has an intrinsic kink on the axis (as a function of `x, y`); there its
+derivative is returned as zero. The longitude is set to 0 on the axis.
 """
 function _geodetic_lon_lat_alt(r_km::AbstractVector{<:Real}, Re::Real, flat::Real)
     x, y, z = r_km[1], r_km[2], r_km[3]
-    lon = atan(y, x)
     e2 = flat * (2 - flat)
     Rp = Re * (1 - flat)
-    p = hypot(x, y)
-    if p < 1.0e-15
-        lat = copysign(_JR_PI / 2, z)
-        alt = abs(z) - Rp
+    p2 = x * x + y * y
+
+    if p2 < _GEODETIC_AXIS_P_KM^2
+        T = typeof(float(x * y * z))
+        Rc = Re / (1 - flat)
+        h0 = abs(z) - Rp
+        alt = h0 + p2 / (2 * (Rc + h0))
+        p = iszero(p2) ? zero(p2) : sqrt(p2)
+        lat = (z >= 0 ? one(T) : -one(T)) * (convert(T, _JR_PI / 2) - p / (Rc + h0))
+        lon = iszero(p2) ? zero(T) : convert(T, atan(y, x))
         return lon, lat, alt
     end
+
+    lon = atan(y, x)
+    p = sqrt(p2)
     theta = atan(Re * z, Rp * p)
-    sin_theta = sin(theta)
-    cos_theta = cos(theta)
+    sin_theta, cos_theta = sincos(theta)
+    ep2 = e2 / (1 - e2)   # second eccentricity squared, e'^2
     lat = atan(
-        z + e2 * Rp * sin_theta^3,
+        z + ep2 * Rp * sin_theta^3,
         p - e2 * Re * cos_theta^3,
     )
-    sin_lat = sin(lat)
-    N = Re / sqrt(1 - e2 * sin_lat^2)
-    alt = p / cos(lat) - N
+    sin_lat, cos_lat = sincos(lat)
+    alt = p * cos_lat + z * sin_lat - Re * sqrt(1 - e2 * sin_lat^2)
     return lon, lat, alt
 end
 
@@ -576,15 +612,61 @@ end
         F107a=150.0,
         Kp=3.0,
         R_polar_km=6356.766,
+        sun_model=:spice,
+        sun_position=nothing,
+        R_equatorial_km=nothing,
+        flattening=nothing,
     )
 
-Build an `f_density` callback using the Jacchia-Roberts model.
+Build an `f_density(et, r_km)` callback using the Jacchia-Roberts model (GMAT heritage),
+returning the density in kg/m³.
 
-`r_km` passed to the callback must be in `frame_PCPF` (km), as supplied by the EOM.
-`frame_PCPF` must match `params.frame_PCPF` used in propagation.
+`r_km` passed to the callback must be in the Earth body-fixed frame `frame_PCPF` (km), as
+supplied by the drag EOMs; `frame_PCPF` must match `params.frame_PCPF` used in
+propagation. Geodetic latitude and altitude are always computed analytically from `r_km`
+(Bowring's formula on an oblate spheroid; ForwardDiff-compatible). Solar and geomagnetic
+indices are constant (F10.7, F10.7a, Kp).
 
-Geodetic latitude and altitude are computed with a pure-Julia oblate-spheroid conversion
-(ForwardDiff-compatible). SPICE is used only for sun position and frame transforms at fixed `et`.
+# Sun position / time source
+
+- `sun_model = :spice` (default, backward compatible): the Sun direction is obtained at
+  every call with SPICE `spkpos`/`pxform` (from `naif_frame` to `frame_PCPF`), UTC with
+  SPICE `deltet`, and the Earth ellipsoid from `bodvrd(earth_id, "RADII")` at
+  construction. Requires the SPK/PCK/LSK kernels to be loaded.
+
+  !!! warning "Not thread-safe"
+      CSPICE is not thread-safe. A callback built with `sun_model = :spice` must not be
+      evaluated concurrently, e.g. it must not be used with `EnsembleThreads()`,
+      `Threads.@threads`, or `Threads.@spawn`-based parallel propagations (this is also
+      true of every `SpiceParameters` EOM). Use `sun_model = :analytic` or `sun_position`
+      for multithreaded work.
+
+- `sun_model = :analytic`: SPICE-free and thread-safe. The Sun is the low-precision
+  analytic Sun (Astronomical Almanac formulas) rotated to an Earth-fixed frame by GMST
+  ([`sun_position_earth_fixed_analytic`](@ref); ~0.01° from ITRF93; 0.05-0.1° from
+  IAU_EARTH over 2000-2030, growing to 0.15° in 2050 and 0.27° in 2100; all negligible for
+  this model), and UTC comes from a built-in
+  leap-second table ([`et_to_utc_mjd_builtin`](@ref)).
+- `sun_position = f`: SPICE-free (unless `f` calls SPICE). `f(et)` must return the Sun
+  position (any length unit) relative to the Earth in `frame_PCPF`, e.g. built with
+  [`ephemerides_sun_position_function`](@ref). Takes precedence over `sun_model`; UTC
+  comes from the built-in leap-second table.
+
+In the SPICE-free modes no SPICE routine is called, neither at construction nor in the
+callback: the ellipsoid defaults to the IAU/pck00011 Earth radii (6378.1366 km,
+6356.7519 km) unless `R_equatorial_km` / `flattening` are given. `R_equatorial_km` and
+`flattening` can also be given in `:spice` mode to skip `bodvrd`.
+
+# Arguments
+- `frame_PCPF`, `naif_frame`, `earth_id`, `abcorr`: SPICE frame/body settings (`:spice` mode only)
+- `F107`, `F107a`: daily and 81-day mean F10.7 solar flux, in SFU
+- `Kp`: geomagnetic index
+- `R_polar_km`: polar radius used inside the Jacchia-Roberts temperature/density integrals
+- `sun_model`: `:spice` or `:analytic` (see above)
+- `sun_position`: optional `et -> r_sun` function (see above)
+- `R_equatorial_km`, `flattening`: reference ellipsoid for the geodetic conversion
+
+Altitudes at or below 100 km raise an error.
 """
 function jacchia_roberts_f_density(;
     frame_PCPF::String = "IAU_EARTH",
@@ -595,27 +677,64 @@ function jacchia_roberts_f_density(;
     F107a::Real = 150.0,
     Kp::Real = 3.0,
     R_polar_km::Real = _JR_DEFAULT_R_POLAR_KM,
+    sun_model::Symbol = :spice,
+    sun_position = nothing,
+    R_equatorial_km::Union{Nothing,Real} = nothing,
+    flattening::Union{Nothing,Real} = nothing,
 )
+    sun_model in (:spice, :analytic) || throw(ArgumentError(
+        "`sun_model` must be :spice or :analytic, got :$sun_model"
+    ))
+    use_spice = isnothing(sun_position) && sun_model == :spice
+
     geo = JacchiaRobertsGeomagneticExposphericParams(F107, F107a, Kp)
-    Re = bodvrd(earth_id, "RADII", 3)[1]
-    flat = (Re - bodvrd(earth_id, "RADII", 3)[3]) / Re
     R_polar_km = float(R_polar_km)
 
-    function f_density(et, r_km_pcpf)
+    if isnothing(R_equatorial_km) || isnothing(flattening)
+        if use_spice
+            radii = bodvrd(earth_id, "RADII", 3)
+            Re_default, Rp_default = radii[1], radii[3]
+        else
+            Re_default, Rp_default = _JR_IAU_EARTH_RE_KM, _JR_IAU_EARTH_RP_KM
+        end
+    end
+    Re = isnothing(R_equatorial_km) ? float(Re_default) : float(R_equatorial_km)
+    flat = isnothing(flattening) ? float((Re_default - Rp_default) / Re_default) : float(flattening)
+
+    if use_spice
+        function f_density(et, r_km_pcpf)
+            _, lat, alt = _geodetic_lon_lat_alt(r_km_pcpf, Re, flat)
+            if alt <= 100.0
+                error("Jacchia-Roberts atmosphere model is not available for altitudes below 100 km.")
+            end
+            et_f = float(et)
+            r_sun, _ = spkpos("10", et_f, naif_frame, abcorr, earth_id)
+            T = SPICE.pxform(naif_frame, frame_PCPF, et_f)
+            sun = T * r_sun
+            sun ./= norm(sun)
+            utc_mjd = et_to_utc_mjd(et_f)
+            rho_gcm3 = jacchia_roberts_density(
+                alt, r_km_pcpf, sun, utc_mjd, lat, geo; R_polar_km = R_polar_km,
+            )
+            return 1e3 * rho_gcm3
+        end
+        return f_density
+    end
+
+    get_sun = isnothing(sun_position) ? _sun_position_earth_fixed_analytic : sun_position
+    function f_density_nospice(et, r_km_pcpf)
         _, lat, alt = _geodetic_lon_lat_alt(r_km_pcpf, Re, flat)
-        if float(alt) <= 100.0
+        if alt <= 100.0
             error("Jacchia-Roberts atmosphere model is not available for altitudes below 100 km.")
         end
-        et_f = float(et)
-        r_sun, _ = spkpos("10", et_f, naif_frame, abcorr, earth_id)
-        T = SPICE.pxform(naif_frame, frame_PCPF, et_f)
-        sun = T * r_sun
-        sun ./= norm(sun)
-        utc_mjd = et_to_utc_mjd(et_f)
+        s = get_sun(et)
+        s_norm = sqrt(s[1]^2 + s[2]^2 + s[3]^2)
+        sun = [s[1] / s_norm, s[2] / s_norm, s[3] / s_norm]
+        utc_mjd = et_to_utc_mjd_builtin(et)
         rho_gcm3 = jacchia_roberts_density(
             alt, r_km_pcpf, sun, utc_mjd, lat, geo; R_polar_km = R_polar_km,
         )
         return 1e3 * rho_gcm3
     end
-    return f_density
+    return f_density_nospice
 end

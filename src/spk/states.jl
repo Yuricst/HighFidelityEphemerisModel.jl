@@ -58,26 +58,28 @@ end
 """
     build_segment_epochs(et_start, et_end; dt_sec=1800.0)
 
-Build a uniform epoch grid from `et_start` to `et_end`, always including the
-endpoint exactly once.
+Build a near-uniform epoch grid from `et_start` to `et_end`, always including
+the endpoint exactly once. If the last uniform node would fall closer than
+`dt_sec/2` to `et_end`, it is dropped so the final step lies in
+`[dt_sec/2, 3dt_sec/2)`; this avoids nearly coincident nodes, which make
+Hermite (type 13) interpolation ill-conditioned.
 """
 function build_segment_epochs(et_start::Float64, et_end::Float64; dt_sec::Float64 = 1800.0)
     @assert et_end > et_start
+    @assert dt_sec > 0
 
     # Build the grid manually instead of using a range so the final endpoint
-    # can be forced to match `et_end` exactly.
+    # matches `et_end` exactly. Nodes are computed as et_start + k*dt to avoid
+    # accumulating round-off.
     ts = Float64[et_start]
-    t = et_start + dt_sec
-    tol = 1e-13
-
-    while t < et_end - tol
+    k = 1
+    while true
+        t = et_start + k * dt_sec
+        et_end - t < 0.5 * dt_sec && break
         push!(ts, t)
-        t += dt_sec
+        k += 1
     end
-
-    if abs(ts[end] - et_end) > tol
-        push!(ts, et_end)
-    end
+    push!(ts, et_end)
 
     return ts
 end
