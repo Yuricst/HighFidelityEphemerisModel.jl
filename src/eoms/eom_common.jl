@@ -19,6 +19,23 @@ _hfem_backend(::EphemeridesParameters) = _EphemeridesBackend()
 @inline _hfem_et(params, t) = params.et0 + t * params.TU
 
 
+# --- per-evaluation checks of mutable parameter fields a backend cannot honour.
+#
+# The Ephemerides.jl/FrameTransformations backend only returns geometric states, so it
+# would silently ignore an aberration correction. `abcorr` is validated at construction
+# and on `params.abcorr = ...`; this cheap per-evaluation re-check is a backstop for
+# writes that bypass `setproperty!` (e.g. `setfield!`). Called from `_hfem_accel`, so it
+# covers the Cartesian EOMs, their STM/Jacobian variants, and the GVEs.
+@inline _check_backend_params(::_HFEMBackend, params) = nothing
+
+@inline function _check_backend_params(::_EphemeridesBackend, params)
+    # fast path: `abcorr` is stored in canonical spelling (see `_canonical_abcorr`);
+    # the fallback is also non-allocating for a valid non-canonical "none"
+    params.abcorr == "NONE" || _validate_ephemerides_abcorr(params.abcorr)
+    return nothing
+end
+
+
 # Frame-name -> FrameTransformations axes mapping used by the EOMs. This is the same
 # (non-allocating, case-insensitive) mapping applied at construction time.
 @inline _ephemerides_axes(frame_name) = ephemerides_axes_symbol(frame_name)
@@ -201,6 +218,7 @@ end
 # implementation: central body, then for each body third-body and SRP terms, then
 # drag, then spherical harmonics.
 @inline function _hfem_accel(backend::_HFEMBackend, x, params, t, ::Val{include_sh}, ::Val{include_central}) where {include_sh,include_central}
+    _check_backend_params(backend, params)
     rx, ry, rz = x[1], x[2], x[3]
     vx, vy, vz = x[4], x[5], x[6]
     mus = params.mus

@@ -250,6 +250,7 @@ end
 
 
 function test_spherical_harmonics_coefficient_changes()
+test_abcorr_canonical_spelling()
     H = HighFidelityEphemerisModel
     x = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]
     t = 0.01
@@ -321,6 +322,47 @@ function test_spherical_harmonics_coefficient_changes()
 end
 
 
+# SPICE ignores case and ASCII blanks in `abcorr` (and nothing else), so every backend
+# stores one canonical spelling that SPICE treats identically.
+function test_abcorr_canonical_spelling()
+    naif_ids = ["399", "301"]
+    GMs = [1.0, 1.0e-6]
+    params = HighFidelityEphemerisModel.SpiceParameters(0.0, 1.0, GMs, naif_ids, "J2000", " lt + s ")
+    @test params.abcorr == "LT+S"
+    params.abcorr = "cn+s "
+    @test params.abcorr == "CN+S"
+    params.abcorr = SubString("xlt + s", 1)
+    @test params.abcorr == "XLT+S"
+
+    canonical = HighFidelityEphemerisModel._canonical_abcorr
+    # tabs, other whitespace and non-ASCII letters are kept, so SPICE still rejects them
+    @test canonical("lt\t+s") == "LT\t+S"
+    @test canonical("LT\u00a0+S") == "LT\u00a0+S"
+    @test canonical("LT+ſ") == "LT+ſ"
+    for abcorr in ("NONE", "LT", "LT+S", "CN", "CN+S", "XLT", "XLT+S", "XCN", "XCN+S")
+        for spelling in (abcorr, lowercase(abcorr), " " * join(collect(lowercase(abcorr)), " ") * " ")
+            @test canonical(spelling) == abcorr
+            # SPICE gives identical results for the given and the canonical spelling
+            @test spkpos("301", 1e8, "J2000", spelling, "399")[1] ==
+                  spkpos("301", 1e8, "J2000", canonical(spelling), "399")[1]
+        end
+    end
+    for abcorr in ("LT\t+S", "LT\u00a0+S", "LT+ſ", "NONE\t")
+        @test_throws SPICE.SpiceError spkpos("301", 1e8, "J2000", abcorr, "399")
+        @test_throws SPICE.SpiceError spkpos("301", 1e8, "J2000", canonical(abcorr), "399")
+    end
+
+    is_none = HighFidelityEphemerisModel._is_none_abcorr
+    for spelling in ("NONE", "none", " n o N e ", SubString("xnone", 2))
+        @test is_none(spelling)
+        @test (@allocations is_none(spelling)) == 0
+    end
+    for spelling in ("", " ", "NON", "NONEE", "NONE\t", "NONE+S", "LT", "ＮＯＮＥ")
+        @test !is_none(spelling)
+    end
+end
+
+
 test_parameter_field_types_and_api()
 test_eom_type_stability_and_allocations()
 test_ephemerides_thread_caches_frame_system_only()
@@ -328,3 +370,4 @@ test_ephemerides_axes_mapping()
 test_spherical_harmonics_field_fast_path()
 test_ephemerides_lowercase_earth_frames()
 test_spherical_harmonics_coefficient_changes()
+test_abcorr_canonical_spelling()

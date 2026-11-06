@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Changes relative to v0.3.0.
+Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
 
 ### Breaking changes
 
@@ -34,6 +34,20 @@ Changes relative to v0.3.0.
   `SpiceParameters` and `EphemeridesParameters` used to report these as `nothing` (and
   list them in `propertynames`). Accessing them now throws, so checks such as
   `isnothing(params.interpolated_transformation)` must be deleted.
+- **`EphemeridesParameters` reject aberration corrections.** The Ephemerides.jl /
+  FrameTransformations.jl backend only returns geometric states, so an `abcorr` such as
+  `"LT+S"` used to be accepted and **silently ignored**: the dynamics were identical to
+  `"NONE"`, unlike `SpiceParameters` with the same `abcorr`. Any value other than `"NONE"`
+  now throws an `ArgumentError`. This applies to the constructor (including
+  `HighFidelityEphemerisModelParameters` with Ephemerides inputs) and to
+  `params.abcorr = ...`. The EOMs, STMs and GVEs also re-check it on every evaluation.
+  Use `SpiceParameters` for aberration-corrected dynamics.
+- **`abcorr` is stored in canonical spelling for every backend.** ASCII letters are
+  uppercased and spaces removed, e.g. `" lt + s "` is stored as `"LT+S"`, both at
+  construction and on assignment. SPICE ignores exactly these differences, so results
+  are unchanged; only code that reads `params.abcorr` back sees the difference. Other
+  characters (tabs, non-ASCII) are kept, so strings that SPICE rejects are still
+  rejected.
 
 ### Dependencies
 
@@ -101,6 +115,17 @@ Changes relative to v0.2.3.
   `"J2000"`/`"ICRF"`, `"EME2000"`, `"ECLIPJ2000"`. Other values used to be silently
   ignored and only failed at the first rotation query. A custom
   `FrameTransformations.FrameSystem` can still be passed as `ephemerides_frame_system`.
+- **Merged SPK `coast_windows` must be continuous.** `ode_sol_to_spk`,
+  `sample_segmented_states_for_spk` and `write_segmented_states_for_spk!` now reject a
+  custom window `(a, b)` with `a < b` whose arcs are separated by an impulsive Δv, a time
+  gap or an overlap, or whose boundary states are not finite. Such windows used to be
+  fitted as one type-13 segment, which silently smoothed over the jump. The default
+  windows (one segment per arc) are not affected. Tolerances are per component, in
+  physical units: `continuity_pos_tol_km = 1e-3`, `continuity_vel_tol_kmps = 1e-6`, plus
+  `continuity_rtol = 0.0` (`abs(Δ) <= atol + rtol * max(abs(x_left), abs(x_right))`).
+  Pass `validate_continuity = false` to restore the old behaviour. All windows are now
+  checked before any output is written, and `ode_sol_to_spk` removes its
+  `ode_sol_to_spk_*` work directory when it fails (unless `keep_intermediates = true`).
 - **`show(params)` prints the bare type name.** `typeof(params)` now includes type
   parameters, e.g. `SpiceParameters{Nothing, typeof(factorial), Nothing}`.
 
