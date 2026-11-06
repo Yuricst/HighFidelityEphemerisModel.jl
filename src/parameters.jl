@@ -5,20 +5,58 @@ abstract type HighFidelityEphemerisModelParameters end
 const AbstractHFEMParameters = HighFidelityEphemerisModelParameters
 
 
-mutable struct SpiceParameters <: HighFidelityEphemerisModelParameters
+# Field-type notes (type stability of the dynamics):
+#
+# - `DU`, `TU`, `VU` are stored as `Float64`; constructors accept any `Real` and
+#   assigning e.g. an `Int` later still works (it is converted).
+# - Fields whose concrete type depends on the user's inputs are type parameters:
+#   `spherical_harmonics_data` (`SH`), `factorial_alias` (`FA`), `f_density`
+#   (`FD`) and, for `EphemeridesParameters`, `ephemerides_backend` (`EB`). This
+#   lets the equations of motion compile to type-stable code. These fields can
+#   still be reassigned, but only to a value of the same type; to switch e.g.
+#   from no density model to a density callback, construct new parameters.
+# - `u` is a user-owned control/parameter vector that is not read by any of the
+#   package's equations of motion. It is deliberately kept as a flexible
+#   `Vector` (any element type, e.g. ForwardDiff duals), so user code that reads
+#   it in a hot loop should pass `params.u` through a function barrier.
+
+"""
+    SpiceParameters{SH,FA,FD}
+
+Parameters for the N-body (+ spherical harmonics, SRP, drag) dynamics in which body
+positions and frame rotations are evaluated with SPICE (`spkpos`, `pxform`) at every
+EOM call. Requires the corresponding kernels to be furnished.
+
+# Construction
+
+    SpiceParameters(et0, DU, GMs, naif_ids, naif_frame = "J2000", abcorr = "NONE"; kwargs...)
+
+`et0` is the reference epoch (TDB seconds past J2000), `DU` the canonical length unit
+in km (any `Real`; stored as `Float64`), `GMs` the gravitational parameters (km³/s²) of
+the bodies `naif_ids`, the first of which is the central body. Common keyword arguments:
+`filepath_spherical_harmonics`, `nmax`, `frame_PCPF`, `include_srp`, `srp_Cr`, `srp_Am`,
+`srp_P0`, `include_drag`, `drag_Cd`, `drag_Am`, `f_density`, `omega_atm`, `nu`,
+`use_canonical_scales`.
+
+Fields can be read and assigned as usual; fields whose type is a type parameter
+(`spherical_harmonics_data`, `factorial_alias`, `f_density`) only accept values of
+the same type (construct new parameters to change e.g. the density model type).
+`copy(params)` gives an independently mutable copy that shares the heavy data.
+"""
+mutable struct SpiceParameters{SH,FA,FD} <: HighFidelityEphemerisModelParameters
     et0::Float64
-    DU::Real
-    TU::Real
-    VU::Real
+    DU::Float64
+    TU::Float64
+    VU::Float64
 
     GMs::Vector{Float64}
     mus::Vector{Float64}
     naif_ids::Vector{String}
     naif_frame::String
     abcorr::String
-    spherical_harmonics_data::Union{Nothing,Dict}
+    spherical_harmonics_data::SH
     frame_PCPF::Union{Nothing,String}
-    factorial_alias::Function
+    factorial_alias::FA
 
     include_srp::Bool
     k_srp_cannonball::Float64
@@ -27,17 +65,41 @@ mutable struct SpiceParameters <: HighFidelityEphemerisModelParameters
     include_drag::Bool
     k_drag::Float64
     omega_atm::Vector{Float64}
-    f_density::Union{Nothing,Function}
+    f_density::FD
 
     u::Vector
 end
 
 
-mutable struct InterpParameters <: HighFidelityEphemerisModelParameters
+"""
+    InterpParameters{SH,FA,FD}
+
+Parameters for the N-body (+ spherical harmonics, SRP, drag) dynamics in which body
+positions and the inertial-to-body-fixed rotation are spline-interpolated from SPICE
+samples taken at construction (`interpolate_ephem_span`, `interpolation_time_step`).
+
+# Construction
+
+    InterpParameters(et0, DU, GMs, naif_ids, naif_frame = "J2000", abcorr = "NONE"; kwargs...)
+
+`et0` is the reference epoch (TDB seconds past J2000), `DU` the canonical length unit
+in km (any `Real`; stored as `Float64`), `GMs` the gravitational parameters (km³/s²) of
+the bodies `naif_ids`, the first of which is the central body. Common keyword arguments:
+`filepath_spherical_harmonics`, `nmax`, `frame_PCPF`, `include_srp`, `srp_Cr`, `srp_Am`,
+`srp_P0`, `include_drag`, `drag_Cd`, `drag_Am`, `f_density`, `omega_atm`, `nu`,
+`use_canonical_scales`.
+Backend-specific keyword arguments: `interpolate_ephem_span::Vector{Float64}` (required), `interpolation_time_step`.
+
+Fields can be read and assigned as usual; fields whose type is a type parameter
+(`spherical_harmonics_data`, `factorial_alias`, `f_density`) only accept values of
+the same type (construct new parameters to change e.g. the density model type).
+`copy(params)` gives an independently mutable copy that shares the heavy data.
+"""
+mutable struct InterpParameters{SH,FA,FD} <: HighFidelityEphemerisModelParameters
     et0::Float64
-    DU::Real
-    TU::Real
-    VU::Real
+    DU::Float64
+    TU::Float64
+    VU::Float64
 
     GMs::Vector{Float64}
     mus::Vector{Float64}
@@ -45,9 +107,9 @@ mutable struct InterpParameters <: HighFidelityEphemerisModelParameters
     naif_frame::String
     abcorr::String
     interpolated_ephems::Vector{InterpolatedEphemeris}
-    spherical_harmonics_data::Union{Nothing,Dict}
+    spherical_harmonics_data::SH
     frame_PCPF::Union{Nothing,String}
-    factorial_alias::Function
+    factorial_alias::FA
     interpolated_transformation::Union{Nothing,InterpolatedTransformation}
 
     include_srp::Bool
@@ -57,27 +119,51 @@ mutable struct InterpParameters <: HighFidelityEphemerisModelParameters
     include_drag::Bool
     k_drag::Float64
     omega_atm::Vector{Float64}
-    f_density::Union{Nothing,Function}
+    f_density::FD
 
     u::Vector
 end
 
 
-mutable struct EphemeridesParameters <: HighFidelityEphemerisModelParameters
+"""
+    EphemeridesParameters{SH,FA,EB,FD}
+
+Parameters for the N-body (+ spherical harmonics, SRP, drag) dynamics in which body
+positions and frame rotations are evaluated with Julia-native Ephemerides.jl /
+FrameTransformations.jl (thread-safe, ForwardDiff-compatible in time).
+
+# Construction
+
+    EphemeridesParameters(et0, DU, GMs, naif_ids, naif_frame = "J2000", abcorr = "NONE"; kwargs...)
+
+`et0` is the reference epoch (TDB seconds past J2000), `DU` the canonical length unit
+in km (any `Real`; stored as `Float64`), `GMs` the gravitational parameters (km³/s²) of
+the bodies `naif_ids`, the first of which is the central body. Common keyword arguments:
+`filepath_spherical_harmonics`, `nmax`, `frame_PCPF`, `include_srp`, `srp_Cr`, `srp_Am`,
+`srp_P0`, `include_drag`, `drag_Cd`, `drag_Am`, `f_density`, `omega_atm`, `nu`,
+`use_canonical_scales`.
+Backend-specific keyword arguments: one of `ephemerides_files`, `ephemerides_provider`, or a prebuilt `ephemerides_frame_system` (the per-thread caches of every Ephemerides.jl provider reachable from it are padded to `Threads.maxthreadid()`).
+
+Fields can be read and assigned as usual; fields whose type is a type parameter
+(`spherical_harmonics_data`, `factorial_alias`, `f_density`, `ephemerides_backend`) only accept values of
+the same type (construct new parameters to change e.g. the density model type).
+`copy(params)` gives an independently mutable copy that shares the heavy data.
+"""
+mutable struct EphemeridesParameters{SH,FA,EB,FD} <: HighFidelityEphemerisModelParameters
     et0::Float64
-    DU::Real
-    TU::Real
-    VU::Real
+    DU::Float64
+    TU::Float64
+    VU::Float64
 
     GMs::Vector{Float64}
     mus::Vector{Float64}
     naif_ids::Vector{String}
     naif_frame::String
     abcorr::String
-    spherical_harmonics_data::Union{Nothing,Dict}
+    spherical_harmonics_data::SH
     frame_PCPF::Union{Nothing,String}
-    factorial_alias::Function
-    ephemerides_backend
+    factorial_alias::FA
+    ephemerides_backend::EB
 
     include_srp::Bool
     k_srp_cannonball::Float64
@@ -86,9 +172,26 @@ mutable struct EphemeridesParameters <: HighFidelityEphemerisModelParameters
     include_drag::Bool
     k_drag::Float64
     omega_atm::Vector{Float64}
-    f_density::Union{Nothing,Function}
+    f_density::FD
 
     u::Vector
+end
+
+
+# Fields whose type is a struct type parameter (see notes above).
+const _HFEM_PARAMETRIC_FIELDS = (:spherical_harmonics_data, :factorial_alias, :f_density, :ephemerides_backend)
+
+
+function Base.setproperty!(params::HighFidelityEphemerisModelParameters, name::Symbol, value)
+    T = fieldtype(typeof(params), name)
+    if name in _HFEM_PARAMETRIC_FIELDS && !(value isa T)
+        throw(ArgumentError(
+            "cannot assign a value of type $(typeof(value)) to `$name`: these parameters were " *
+            "constructed with `$name::$T`, and this field's type is fixed so that the equations " *
+            "of motion are type-stable. Construct new parameters with the desired `$name` instead."
+        ))
+    end
+    return setfield!(params, name, convert(T, value))
 end
 
 
@@ -117,7 +220,7 @@ end
 
 
 function Base.show(io::IO, params::HighFidelityEphemerisModelParameters)
-    println(io, string(typeof(params)))
+    println(io, string(nameof(typeof(params))))
     @printf(io, "    et0              : %s (et = %1.8f)\n", et2utc(params.et0, "ISOC", 3), params.et0)
     @printf(io, "    DU               : %1.8f\n", params.DU)
     @printf(io, "    TU               : %1.8f\n", params.TU)
@@ -199,6 +302,7 @@ function _hfem_common_fields(
     use_canonical_scales::Bool = true,
 )
     if use_canonical_scales
+        DU = Float64(DU)
         VU = sqrt(GMs[1] / DU)
         TU = DU / VU
         mus = GMs / GMs[1]
@@ -278,6 +382,21 @@ function _make_ephemerides_backend(ephemerides_provider, ephemerides_files, ephe
 
     if isnothing(ephemerides_frame_system)
         ephemerides_frame_system = build_ephemerides_frame_system(ephemerides_provider, frame_PCPF)
+    else
+        # A user-supplied frame system is queried directly by the EOMs, so the
+        # provider(s) captured by its point/axes functions must be padded too,
+        # whether or not `ephemerides_provider` was also given.
+        providers = find_ephemerides_providers(ephemerides_frame_system)
+        for provider in providers
+            ensure_ephemerides_thread_caches!(provider)
+        end
+        if isempty(providers) && isnothing(ephemerides_provider) &&
+                ephemerides_frame_system isa FrameTransformations.FrameSystem
+            @warn "No Ephemerides.EphemerisProvider is reachable from `ephemerides_frame_system`, so " *
+                "its per-thread segment caches cannot be padded to `Threads.maxthreadid()`. If the " *
+                "frame system is backed by an Ephemerides.jl provider, also pass it as " *
+                "`ephemerides_provider` to make multithreaded use (e.g. `EnsembleThreads`) safe." maxlog = 1
+        end
     end
 
     return EphemeridesBackend(ephemerides_provider, ephemerides_frame_system)
@@ -337,7 +456,8 @@ function _construct_hfem_parameters(
         use_canonical_scales)
 
     if backend == :spice
-        return SpiceParameters(c.et0, c.DU, c.TU, c.VU,
+        return SpiceParameters{typeof(c.spherical_harmonics_data),typeof(c.factorial_alias),typeof(c.f_density)}(
+            c.et0, c.DU, c.TU, c.VU,
             c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
             c.spherical_harmonics_data, c.frame_PCPF, c.factorial_alias,
             c.include_srp, c.k_srp_cannonball, c.idx_sun,
@@ -347,7 +467,8 @@ function _construct_hfem_parameters(
             c.naif_ids, c.naif_frame, c.abcorr, c.naif_ids[1], c.TU,
             interpolate_ephem_span, interpolation_time_step, c.frame_PCPF)
 
-        return InterpParameters(c.et0, c.DU, c.TU, c.VU,
+        return InterpParameters{typeof(c.spherical_harmonics_data),typeof(c.factorial_alias),typeof(c.f_density)}(
+            c.et0, c.DU, c.TU, c.VU,
             c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
             interpolated_ephems, c.spherical_harmonics_data, c.frame_PCPF,
             c.factorial_alias, interpolated_transformation,
@@ -357,7 +478,9 @@ function _construct_hfem_parameters(
         ephemerides_backend = _make_ephemerides_backend(
             ephemerides_provider, ephemerides_files, ephemerides_frame_system, c.frame_PCPF)
 
-        return EphemeridesParameters(c.et0, c.DU, c.TU, c.VU,
+        return EphemeridesParameters{typeof(c.spherical_harmonics_data),typeof(c.factorial_alias),
+                typeof(ephemerides_backend),typeof(c.f_density)}(
+            c.et0, c.DU, c.TU, c.VU,
             c.GMs, c.mus, c.naif_ids, c.naif_frame, c.abcorr,
             c.spherical_harmonics_data, c.frame_PCPF, c.factorial_alias,
             ephemerides_backend,

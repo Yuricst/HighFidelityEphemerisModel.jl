@@ -77,6 +77,7 @@ Pages   = [
     "perturbations/spherical_harmonics.jl",
     "perturbations/solar_radiation_pressure.jl",
     "perturbations/drag.jl",
+    "perturbations/sun_analytic.jl",
     "perturbations/harrispriester.jl",
     "perturbations/jacchiaroberts.jl",
 ]

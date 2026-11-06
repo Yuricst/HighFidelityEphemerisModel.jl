@@ -1,6 +1,6 @@
 """Demo for spherical harmonics"""
 
-using GLMakie
+using CairoMakie
 using LinearAlgebra
 using OrdinaryDiffEq
 using SPICE

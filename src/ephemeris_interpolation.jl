@@ -73,6 +73,16 @@ Interpolate ephemeris position at a given epoch
 - `et::Float64`: epoch to interpolate
 """
 function get_pos(ephem::InterpolatedEphemeris, et::Float64)
+    return collect(_get_pos3(ephem, et))
+end
+
+
+"""
+    _get_pos3(ephem, et)
+
+Allocation-free form of [`get_pos`](@ref); returns the position as a 3-tuple.
+"""
+@inline function _get_pos3(ephem::InterpolatedEphemeris, et::Float64)
     if ephem.rescale_epoch
         et_eval = et * ephem.tstar + ephem.et_range[1]
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
@@ -80,9 +90,10 @@ function get_pos(ephem::InterpolatedEphemeris, et::Float64)
         et_eval = et
         @assert ephem.et_range[1] <= et <= ephem.et_range[2]
     end
-    return [Dierckx.evaluate(ephem.splines[1], et_eval),
-            Dierckx.evaluate(ephem.splines[2], et_eval),
-            Dierckx.evaluate(ephem.splines[3], et_eval)]
+    splines = ephem.splines
+    return (Dierckx.evaluate(splines[1], et_eval),
+            Dierckx.evaluate(splines[2], et_eval),
+            Dierckx.evaluate(splines[3], et_eval))
 end
 
 

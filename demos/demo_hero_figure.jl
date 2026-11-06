@@ -184,8 +184,10 @@ R_EARTH = 6378.137
 h_stop = 120.0
 et0_leo = str2et("2026-01-05T00:00:00")
 density_models = [
-    ("Harris–Priester (min)", HFEM.harris_priester_f_density(R_EARTH; use_min = true)),
-    ("Harris–Priester (max)", HFEM.harris_priester_f_density(R_EARTH; use_min = false)),
+    # Montenbruck & Gill Harris–Priester with diurnal bulge (analytic Sun), bulge exponent
+    # n = 2 (low-inclination value) and n = 6 (polar value) bracketing this 51.6° orbit
+    ("Harris–Priester (n = 2)", HFEM.harris_priester_f_density(R_EARTH; n = 2)),
+    ("Harris–Priester (n = 6)", HFEM.harris_priester_f_density(R_EARTH; n = 6)),
     ("Jacchia–Roberts", HFEM.jacchia_roberts_f_density(frame_PCPF = "IAU_EARTH")),
 ]
 

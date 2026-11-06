@@ -182,25 +182,45 @@ function EphemeridesBackend(provider; frame_PCPF::Union{Nothing,String}=nothing,
 
     if isnothing(frame_system)
         frame_system = build_ephemerides_frame_system(provider, frame_PCPF)
+    else
+        # a user-supplied frame system may be backed by other provider(s)
+        ensure_ephemerides_thread_caches!(frame_system)
     end
 
     return EphemeridesBackend(provider, frame_system)
 end
 
 
-"""
-    ensure_ephemerides_thread_caches!(provider)
+@inline _ephemerides_cache_slots_needed() =
+    isdefined(Threads, :maxthreadid) ? Threads.maxthreadid() : Threads.nthreads()
 
-Pad Ephemerides.jl SPK/PCK segment caches to `Threads.maxthreadid()`.
+
+"""
+    ensure_ephemerides_thread_caches!(x; nslots = Threads.maxthreadid())
+
+Pad Ephemerides.jl SPK/PCK segment caches to `nslots` (default
+`Threads.maxthreadid()`) entries.
 
 Ephemerides allocates `Threads.nthreads()` cache slots but indexes them with
-`Threads.threadid()`. With an interactive thread pool those IDs are not
-`1:nthreads()`, so `@threads` workers can `BoundsError` on the cache vector.
-"""
-function ensure_ephemerides_thread_caches!(provider)
-    isnothing(provider) && return provider
+`Threads.threadid()`. With an interactive thread pool (the default from Julia
+1.12 on) those IDs are not `1:nthreads()`, so `@threads` / `EnsembleThreads`
+workers can `BoundsError` on the cache vector.
 
-    nneed = isdefined(Threads, :maxthreadid) ? Threads.maxthreadid() : Threads.nthreads()
+`x` can be an `Ephemerides.EphemerisProvider`, `nothing` (no-op), or any other
+object such as a `FrameTransformations.FrameSystem`. In the latter case every
+`EphemerisProvider` reachable from `x` through its fields is padded. For a
+frame system built with `FrameTransformations.add_point_ephemeris!` /
+`add_axes_ephemeris!` (as `build_ephemerides_frame_system` does), the providers
+are captured by the closures stored in the point/axes nodes and are therefore
+found. A provider that is only referenced through a global variable (e.g. from
+a user-defined `add_point_dynamical!` function) cannot be found this way; pass
+it explicitly as `ephemerides_provider` in that case.
+
+Returns `x`. Padding only covers thread IDs that exist when this is called.
+"""
+function ensure_ephemerides_thread_caches!(
+    provider::Ephemerides.EphemerisProvider; nslots::Integer = _ephemerides_cache_slots_needed()
+)
     for daf in provider.files
         for fname in fieldnames(typeof(daf.seglist))
             segs = getfield(daf.seglist, fname)
@@ -210,13 +230,69 @@ function ensure_ephemerides_thread_caches!(provider)
                 caches = getfield(seg, :cache)
                 caches isa AbstractVector || continue
                 isempty(caches) && continue
-                while length(caches) < nneed
+                while length(caches) < nslots
                     push!(caches, deepcopy(caches[1]))
                 end
             end
         end
     end
     return provider
+end
+
+ensure_ephemerides_thread_caches!(::Nothing; nslots::Integer = 0) = nothing
+
+function ensure_ephemerides_thread_caches!(x; nslots::Integer = _ephemerides_cache_slots_needed())
+    for provider in find_ephemerides_providers(x)
+        ensure_ephemerides_thread_caches!(provider; nslots = nslots)
+    end
+    return x
+end
+
+
+@inline function _skip_in_provider_search(obj)
+    return isbits(obj) || obj isa Module || obj isa Type || obj isa Symbol ||
+        obj isa AbstractString || obj isa Core.MethodInstance || obj isa Method ||
+        obj isa Core.CodeInstance || obj isa Task
+end
+
+
+"""
+    find_ephemerides_providers(x; max_objects = 10^6)
+
+Return the distinct `Ephemerides.EphemerisProvider`s reachable from `x` by
+following struct fields and array elements (including closure captures, e.g.
+the point/axes functions stored in a `FrameTransformations.FrameSystem`).
+"""
+function find_ephemerides_providers(root; max_objects::Integer = 10^6)
+    found = Ephemerides.EphemerisProvider[]
+    seen = IdDict{Any,Nothing}()
+    stack = Any[root]
+    while !isempty(stack) && length(seen) < max_objects
+        obj = pop!(stack)
+        _skip_in_provider_search(obj) && continue
+        haskey(seen, obj) && continue
+        seen[obj] = nothing
+
+        if obj isa Ephemerides.EphemerisProvider
+            push!(found, obj)
+            continue
+        end
+
+        if obj isa AbstractArray || (isdefined(Core, :GenericMemory) && obj isa Core.GenericMemory)
+            isbitstype(eltype(obj)) && continue
+            if obj isa Array || (isdefined(Core, :GenericMemory) && obj isa Core.GenericMemory)
+                for i in eachindex(obj)
+                    isassigned(obj, i) && push!(stack, obj[i])
+                end
+                continue
+            end
+        end
+
+        for i in 1:nfields(obj)
+            isdefined(obj, i) && push!(stack, getfield(obj, i))
+        end
+    end
+    return found
 end
 
 
@@ -233,17 +309,36 @@ package, so the Ephemerides/FrameTransformations backend maps `"J2000"` to
 `:ICRF`.
 """
 function ephemerides_axes_symbol(frame_name::String)
-    frame_upper = uppercase(frame_name)
-
-    if frame_upper in ("J2000", "ICRF")
+    # Non-allocating (ASCII case-insensitive comparisons): this is also called by the
+    # equations of motion on every evaluation.
+    if _ascii_iequal(frame_name, "J2000") || _ascii_iequal(frame_name, "ICRF")
         return :ICRF
-    elseif frame_upper == "EME2000"
+    elseif _ascii_iequal(frame_name, "EME2000")
         return :EME2000
-    elseif frame_upper == "MOON_PA"
-        return :MOON_PA
     else
+        for (sym, name) in _EPHEMERIDES_KNOWN_AXES
+            _ascii_iequal(frame_name, name) && return sym
+        end
         return Symbol(frame_name)
     end
+end
+
+# body-fixed / other axes whose FrameTransformations name is their upper-case SPICE name
+const _EPHEMERIDES_KNOWN_AXES = (
+    (:MOON_PA, "MOON_PA"), (:ITRF93, "ITRF93"), (:IAU_EARTH, "IAU_EARTH"), (:ECLIPJ2000, "ECLIPJ2000"),
+)
+
+
+# ASCII case-insensitive string equality, without allocating
+@inline function _ascii_iequal(a::AbstractString, b::AbstractString)
+    ncodeunits(a) == ncodeunits(b) || return false
+    @inbounds for i in 1:ncodeunits(a)
+        ca, cb = codeunit(a, i), codeunit(b, i)
+        ca = UInt8('a') <= ca <= UInt8('z') ? ca - 0x20 : ca
+        cb = UInt8('a') <= cb <= UInt8('z') ? cb - 0x20 : cb
+        ca == cb || return false
+    end
+    return true
 end
 
 ephemerides_axes_symbol(frame_name::Symbol) = frame_name
@@ -368,6 +463,93 @@ function _register_ephemerides_points!(frames, provider)
 end
 
 
+# NAIF frame IDs used for the body-fixed axes supported by `build_ephemerides_frame_system`
+const _EPHEM_AXESID_ECLIPJ2000 = 17
+const _EPHEM_AXESID_ITRF93 = 3000
+const _EPHEM_AXESID_IAU_EARTH = 10013
+const _EPHEM_AXESID_MOON_PA_DE440 = 31008
+
+# SPICE's J2000 -> ECLIPJ2000 obliquity (IAU 1976), 84381.448 arcsec
+const _EPHEM_ECLIPJ2000_OBLIQUITY_RAD = deg2rad(84381.448 / 3600)
+
+const _EPHEM_SUPPORTED_PCPF_MSG = """
+Supported `frame_PCPF` values for the Ephemerides.jl backend:
+  "MOON_PA"   - DE440 lunar principal axes; needs a lunar binary PCK in the provider
+                (e.g. moon_pa_de440_200625.bpc)
+  "ITRF93"    - high-precision Earth body-fixed frame; needs a binary Earth PCK in the
+                provider (e.g. earth_latest_high_prec.bpc, earth_000101_*.bpc,
+                earth_200101_*_predict.bpc)
+  "IAU_EARTH" - IAU 2009 Earth rotation model (same constants as pck00010/pck00011);
+                no kernel needed
+  "J2000"/"ICRF", "EME2000", "ECLIPJ2000" - inertial axes (always available)
+For other frames, build a FrameTransformations.FrameSystem yourself and pass it as
+`ephemerides_frame_system`."""
+
+
+"""
+    _iau_earth_dcm(t)
+
+Rotation matrix from ICRF (SPICE J2000) to `IAU_EARTH` at `t` TDB seconds past J2000,
+using the IAU 2009 Earth rotational elements (identical in NAIF `pck00010.tpc` and
+`pck00011.tpc`; Earth has no nutation/precession trigonometric terms):
+
+    α₀ = 0° - 0.641° T,   δ₀ = 90° - 0.557° T,   W = 190.147° + 360.9856235° d
+
+with `T` in Julian centuries and `d` in days (TDB) past J2000, and
+`R = R₃(W) R₁(90° - δ₀) R₃(90° + α₀)` as in SPICE. Generic over `t` so that
+FrameTransformations can differentiate it with ForwardDiff for the rotation rate.
+"""
+function _iau_earth_dcm(t)
+    d = t / 86400
+    T = d / 36525
+    α = deg2rad(-0.641 * T)
+    δ = deg2rad(90 - 0.557 * T)
+    W = deg2rad(190.147 + 360.9856235 * d)
+    return FrameTransformations.angle_to_dcm(π / 2 + α, π / 2 - δ, W, :ZXZ)
+end
+
+
+function _ensure_axes_eclipj2000!(frames)
+    FrameTransformations.has_axes(frames, _EPHEM_AXESID_ECLIPJ2000) && return frames
+    # Defined directly from ICRF (= SPICE J2000) with the IAU 1976 obliquity, exactly as
+    # SPICE's ECLIPJ2000; FrameTransformations' `add_axes_ecl2000!` would also apply the
+    # ICRF -> EME2000 frame bias, which SPICE does not.
+    FrameTransformations.add_axes_fixedoffset!(
+        frames, :ECLIPJ2000, _EPHEM_AXESID_ECLIPJ2000, FrameTransformations.AXESID_ICRF,
+        FrameTransformations.angle_to_dcm(_EPHEM_ECLIPJ2000_OBLIQUITY_RAD, :X),
+    )
+    return frames
+end
+
+
+function _ephemerides_orientation_parent(provider, axes_id::Int)
+    for rec in Ephemerides.jEph.ephem_orient_records(provider)
+        rec.target == axes_id && return Int(rec.axes)
+    end
+    return nothing
+end
+
+
+function _add_axes_from_binary_pck!(frames, provider, name::Symbol, axes_id::Int, kernel_hint::String)
+    available = Int.(collect(Ephemerides.ephem_get_axes(provider)))
+    if !(axes_id in available)
+        throw(ArgumentError(
+            "frame_PCPF = \"$(name)\" (NAIF frame ID $(axes_id)) requires orientation data " *
+            "that is not in the Ephemerides.jl provider: load $(kernel_hint) through " *
+            "`ephemerides_files`/`ephemerides_provider`. Axes available in the provider: " *
+            "$(available).\n" * _EPHEM_SUPPORTED_PCPF_MSG
+        ))
+    end
+    parent = _ephemerides_orientation_parent(provider, axes_id)
+    if parent == _EPHEM_AXESID_ECLIPJ2000
+        _ensure_axes_eclipj2000!(frames)
+    end
+    # binary PCK type 2/3 angles are (φ, δ, w) with R = R₃(w) R₁(δ) R₃(φ)
+    FrameTransformations.add_axes_ephemeris!(frames, provider, name, axes_id, :ZXZ)
+    return frames
+end
+
+
 """
     build_ephemerides_frame_system(provider, frame_PCPF=nothing)
 
@@ -375,9 +557,22 @@ Build a FrameTransformations frame system for Ephemerides-backed point and axes
 transforms.
 
 The frame system is built with order 2 so it supports both `vector3` and
-`vector6` queries. HFEM does not manually work around missing kernel data: if the
-requested point/axes transform is unsupported by the loaded kernels/backend, the
-query should error clearly.
+`vector6` queries. All SPK points of `provider` are registered, together with the
+ICRF (`"J2000"`), EME2000 and SPICE-compatible ECLIPJ2000 axes, and the body-fixed
+axes named by `frame_PCPF`:
+
+- `"MOON_PA"`: DE440 lunar principal axes from a lunar binary PCK in `provider`
+  (e.g. `moon_pa_de440_200625.bpc`).
+- `"ITRF93"`: Earth body-fixed axes from a binary Earth PCK in `provider`
+  (e.g. `earth_latest_high_prec.bpc`; NAIF frame 3000, defined relative to ECLIPJ2000).
+  Matches SPICE `pxform("J2000", "ITRF93", et)` to ~1e-15.
+- `"IAU_EARTH"`: IAU 2009 Earth rotation model ([`_iau_earth_dcm`](@ref)); needs no
+  kernel and matches SPICE `IAU_EARTH` with `pck00010.tpc`/`pck00011.tpc` loaded.
+
+Any other body-fixed `frame_PCPF` raises an `ArgumentError` listing the supported frames
+and the kernels they need; a custom frame system can always be passed to
+`EphemeridesParameters` through `ephemerides_frame_system` instead. HFEM does not
+otherwise work around missing kernel data: unsupported point/axes queries error.
 """
 function build_ephemerides_frame_system(provider, frame_PCPF::Union{Nothing,String}=nothing)
     isnothing(provider) && error(
@@ -396,6 +591,7 @@ function build_ephemerides_frame_system(provider, frame_PCPF::Union{Nothing,Stri
             occursin("already registered", msg) || rethrow(error)
         end
     end
+    _ensure_axes_eclipj2000!(frames)
 
     # Root point for the SPK point graph. The docs use ICRF axes ID 1.
     FrameTransformations.add_point!(frames, :SSB, 0, 1)
@@ -405,7 +601,27 @@ function build_ephemerides_frame_system(provider, frame_PCPF::Union{Nothing,Stri
         frame_symbol = ephemerides_axes_symbol(frame_PCPF)
 
         if frame_symbol == :MOON_PA
-            FrameTransformations.add_axes_pa440!(frames, provider, frame_symbol)
+            _add_axes_from_binary_pck!(
+                frames, provider, :MOON_PA, _EPHEM_AXESID_MOON_PA_DE440,
+                "a DE440 lunar binary PCK (e.g. moon_pa_de440_200625.bpc)",
+            )
+        elseif frame_symbol == :ITRF93
+            _add_axes_from_binary_pck!(
+                frames, provider, :ITRF93, _EPHEM_AXESID_ITRF93,
+                "a binary Earth PCK (e.g. earth_latest_high_prec.bpc)",
+            )
+        elseif frame_symbol == :IAU_EARTH
+            FrameTransformations.add_axes_rotating!(
+                frames, :IAU_EARTH, _EPHEM_AXESID_IAU_EARTH, FrameTransformations.AXESID_ICRF,
+                _iau_earth_dcm,
+            )
+        elseif frame_symbol in (:ICRF, :EME2000, :ECLIPJ2000)
+            # inertial axes, already registered
+        else
+            throw(ArgumentError(
+                "frame_PCPF = \"$(frame_PCPF)\" is not supported by the Ephemerides.jl " *
+                "backend's built-in frame system.\n" * _EPHEM_SUPPORTED_PCPF_MSG
+            ))
         end
     end
 
