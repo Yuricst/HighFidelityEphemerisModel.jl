@@ -117,7 +117,10 @@ function test_harris_priester_eom()
     # regression value for the M&G Harris-Priester model (diurnal bulge, n = 6, analytic Sun)
     u_check = [-0.6522673489587052, 0.9289605126960042, -0.006210400132942633,
                -0.7793891515554786, -0.49969787601367466, -0.007419592032811833]
-    @test norm(sol.u[end] - u_check) < 1e-9
+    # Tolerance is set by the numerical noise floor, not the model: over 2 days (~30 revs)
+    # a 1-ulp change in u0 moves the final state by ~5e-9 and the Vern7 truncation error is
+    # ~1e-9, so platform-dependent rounding (e.g. macOS CI gave 1.8e-9) must be tolerated.
+    @test norm(sol.u[end] - u_check) < 1e-7
 
     # drag must still be a small perturbation of the drag-free orbit, and must decay it
     parameters_nodrag = HighFidelityEphemerisModel.SpiceParameters(
