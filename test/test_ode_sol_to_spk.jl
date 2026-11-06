@@ -325,6 +325,187 @@ function test_spk_rejects_discontinuous_coast_windows()
 end
 
 
+"""Mock arc whose evaluation always fails; used to trigger errors mid-pipeline."""
+struct ThrowingCoastArc
+    t::Vector{Float64}
+end
+
+(arc::ThrowingCoastArc)(t) = error("ThrowingCoastArc evaluated at t = $(t)")
+
+
+function _constant_arc(t, x)
+    return MockCoastArc(collect(Float64, t), collect(Float64, x), zeros(6))
+end
+
+
+function test_spk_coast_window_continuity_tolerances()
+    # DU = 10 km, VU = 0.01 km/s.
+    parameters = (TU = 100.0, DU = 10.0, VU = 0.01)
+    et0 = 1000.0
+    x = [1.0, 2.0, 3.0, 0.1, 0.2, 0.3]
+    kw = (dt_sec = 50.0, segment_gap_sec = 0.0, verbose = false, show_progress = false)
+
+    sample(sols; extra...) = HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+        sols, [(1, 2)], et0, parameters; kw..., extra...,
+    )
+
+    # Position defect of 5e-5 DU = 5e-4 km: below the default 1e-3 km.
+    small = [_constant_arc([0.0, 1.0], x), _constant_arc([1.0, 2.0], x .+ [5e-5, 0, 0, 0, 0, 0])]
+    @test length(sample(small).segments) == 1
+
+    # Position defect of 1e-3 DU = 1e-2 km: rejected by default ...
+    large = [_constant_arc([0.0, 1.0], x), _constant_arc([1.0, 2.0], x .+ [1e-3, 0, 0, 0, 0, 0])]
+    @test_throws ErrorException sample(large)
+    # ... accepted with a looser absolute tolerance, a relative tolerance,
+    # or with the check disabled.
+    @test length(sample(large; continuity_pos_tol_km = 2e-2).segments) == 1
+    @test length(sample(large; continuity_rtol = 1e-2).segments) == 1
+    @test length(sample(large; validate_continuity = false).segments) == 1
+    # A tighter tolerance rejects the small defect.
+    @test_throws ErrorException sample(small; continuity_pos_tol_km = 1e-4)
+
+    # Velocity defect of 1e-5 VU = 1e-7 km/s: below the default 1e-6 km/s.
+    small_v = [_constant_arc([0.0, 1.0], x), _constant_arc([1.0, 2.0], x .+ [0, 0, 0, 1e-5, 0, 0])]
+    @test length(sample(small_v).segments) == 1
+    @test_throws ErrorException sample(small_v; continuity_vel_tol_kmps = 1e-8)
+
+    # The same keywords are accepted by the text-file writer.
+    mktempdir() do tmpdir
+        res = HighFidelityEphemerisModel.write_segmented_states_for_spk!(
+            large, [(1, 2)], et0, parameters;
+            kw..., outdir = joinpath(tmpdir, "states"), continuity_pos_tol_km = 2e-2,
+        )
+        @test length(res.state_files) == 1
+    end
+
+    # Negative tolerances are rejected.
+    @test_throws ErrorException sample(small; continuity_pos_tol_km = -1.0)
+
+    # The error message names the arcs, the boundary time and both jumps.
+    err = try
+        sample(large)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("global arcs 1 and 2", err.msg)
+    @test occursin("position jump", err.msg)
+    @test occursin("velocity jump", err.msg)
+    @test occursin("continuity_pos_tol_km", err.msg)
+end
+
+
+function test_spk_coast_window_nonfinite_and_callback_messages()
+    parameters = (TU = 100.0, DU = 10.0, VU = 0.01)
+    et0 = 1000.0
+    x = [1.0, 2.0, 3.0, 0.1, 0.2, 0.3]
+    kw = (dt_sec = 50.0, segment_gap_sec = 0.0, verbose = false, show_progress = false)
+
+    sample(sols, windows = [(1, 2)]) = HighFidelityEphemerisModel.sample_segmented_states_for_spk(
+        sols, windows, et0, parameters; kw...,
+    )
+
+    # NaN endpoint state.
+    nan_state = [_constant_arc([0.0, 1.0], x), _constant_arc([1.0, 2.0], [NaN, 2.0, 3.0, 0.1, 0.2, 0.3])]
+    @test_throws ErrorException sample(nan_state)
+
+    # NaN endpoint time.
+    nan_time = [_constant_arc([0.0, NaN], x), _constant_arc([1.0, 2.0], x)]
+    @test_throws ErrorException sample(nan_time)
+
+    # Impulse applied by a callback at the final time of arc 2 (of 3): the
+    # final time is repeated and `sol(t_f)` is the pre-impulse state.
+    x_post = x .+ [0, 0, 0, 0.1, 0, 0]
+    callback_sols = [
+        _constant_arc([0.0, 1.0], x),
+        _constant_arc([1.0, 2.0, 2.0], x),
+        _constant_arc([2.0, 3.0], x_post),
+    ]
+    err = try
+        sample(callback_sols, [(1, 1), (2, 3)])
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("global arcs 2 and 3", err.msg)
+    @test occursin("repeated time", err.msg)
+    @test occursin("inside that arc", err.msg)
+
+    # Bad window bounds are still reported.
+    @test_throws ErrorException sample(callback_sols, [(1, 4)])
+    @test_throws ErrorException sample(callback_sols, [(2, 1)])
+end
+
+
+function test_spk_rejected_window_leaves_no_output()
+    parameters = (TU = 100.0, DU = 10.0, VU = 0.01)
+    et0 = 1000.0
+    x = [1.0, 2.0, 3.0, 0.1, 0.2, 0.3]
+
+    # Arcs 2 and 3 are separated by an impulsive Δv.
+    sols = [
+        _constant_arc([0.0, 1.0], x),
+        _constant_arc([1.0, 2.0], x),
+        _constant_arc([2.0, 3.0], x .+ [0, 0, 0, 0.1, 0, 0]),
+    ]
+
+    mktempdir() do tmpdir
+        outdir = joinpath(tmpdir, "states")
+        @test_throws ErrorException HighFidelityEphemerisModel.write_segmented_states_for_spk!(
+            sols, [(1, 1), (2, 3)], et0, parameters;
+            dt_sec = 50.0, segment_gap_sec = 0.0, outdir = outdir,
+            verbose = false, show_progress = false,
+        )
+        # The first (valid) window must not have been written.
+        @test !isdir(outdir) || isempty(readdir(outdir))
+    end
+
+    spk_parameters = _mock_parameters(et0 = et0)
+    spk_kw = (
+        spice_id = -123456,
+        center_id = 399,
+        dt_sec = 50.0,
+        write_metadata = true,
+        keep_intermediates = false,
+        verbose = false,
+        show_progress = false,
+    )
+
+    # Rejected window: no work directory, BSP or metadata is created.
+    mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "out", "rejected.bsp")
+        @test_throws ErrorException HighFidelityEphemerisModel.ode_sol_to_spk(
+            sols, et0, spk_parameters;
+            output_spk = output_spk, coast_windows = [(1, 1), (2, 3)], spk_kw...,
+        )
+        @test !isdir(dirname(output_spk)) || isempty(readdir(dirname(output_spk)))
+        @test isempty(filter(startswith("ode_sol_to_spk_"), readdir(tmpdir)))
+    end
+
+    # Failure after the work directory exists: it is still removed.
+    mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "failing.bsp")
+        @test_throws ErrorException HighFidelityEphemerisModel.ode_sol_to_spk(
+            [ThrowingCoastArc([0.0, 1.0])], et0, spk_parameters;
+            output_spk = output_spk, spk_kw...,
+        )
+        @test isempty(filter(startswith("ode_sol_to_spk_"), readdir(tmpdir)))
+        @test !isfile(output_spk)
+    end
+
+    # ... unless intermediates were requested.
+    mktempdir() do tmpdir
+        output_spk = joinpath(tmpdir, "failing.bsp")
+        @test_throws ErrorException HighFidelityEphemerisModel.ode_sol_to_spk(
+            [ThrowingCoastArc([0.0, 1.0])], et0, spk_parameters;
+            output_spk = output_spk, spk_kw..., keep_intermediates = true,
+        )
+        @test length(filter(startswith("ode_sol_to_spk_"), readdir(tmpdir))) == 1
+    end
+end
+
 function test_spk_maneuver_and_metadata_helpers()
     parameters = (
         TU = 100.0,
@@ -580,6 +761,10 @@ end
 
 test_spk_helper_utilities()
 test_spk_state_sampling()
+test_spk_rejects_discontinuous_coast_windows()
+test_spk_coast_window_continuity_tolerances()
+test_spk_coast_window_nonfinite_and_callback_messages()
+test_spk_rejected_window_leaves_no_output()
 test_spk_maneuver_and_metadata_helpers()
 test_ode_sol_to_native_spk()
 test_incremental_native_spk_append()
