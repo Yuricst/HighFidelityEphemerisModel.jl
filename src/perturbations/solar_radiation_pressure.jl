@@ -43,3 +43,14 @@ function srp_cannonball(r::Vector{T}, r_sun::Vector{Float64}, k_srp_cannonball::
     r_relative = r - r_sun
     return k_srp_cannonball * r_relative / norm(r_relative)^3
 end
+
+"""
+    _srp_cannonball3(rx, ry, rz, sx, sy, sz, k_srp_cannonball)
+
+Allocation-free scalar form of [`srp_cannonball`](@ref); returns a 3-tuple.
+"""
+@inline function _srp_cannonball3(rx, ry, rz, sx, sy, sz, k_srp_cannonball)
+    dx, dy, dz = rx - sx, ry - sy, rz - sz
+    c = k_srp_cannonball / sqrt(dx * dx + dy * dy + dz * dz)^3
+    return (c * dx, c * dy, c * dz)
+end
