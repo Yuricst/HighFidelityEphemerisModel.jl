@@ -73,7 +73,8 @@ Figure \\ref{fig:hfem-architecture} summarizes these interfaces.
 
 The package has been evaluated through numerical comparisons with established astrodynamics libraries, including GMAT, Orekit, Nyx, and Basilisk. 
 Three representative cases encompass a seven-day near-rectilinear halo orbit (H7), a low lunar orbit (LLO-MESH4), and a low Earth orbit (LEO-EMSH4). Each case includes third-body gravitational perturbations and spherical harmonics terms up to degree/order-four, and are summarized in Table \\ref{tbl:validation-cases}.
-Residuals use documented `HighFidelityEphemerisModel.jl` SPICE trajectories, with tool-specific numerical mirrors for Nyx and LLO Orekit; they measure agreement, not absolute accuracy. These comparisons provide quantitative evidence of numerical consistency across different propagation frameworks while accounting for differences in integrators, ephemeris evaluation, and model implementation.
+Residuals use documented `HighFidelityEphemerisModel.jl` SPICE trajectories, selecting the best-matching IVP algorithms for comparison against Nyx and Orekit.
+These comparisons provide quantitative evidence of numerical consistency across different propagation frameworks while accounting for differences in integrators, ephemeris evaluation, and model implementation.
 
 Figure \\ref{fig:validation-position} and Table \\ref{tbl:position-maxima} summarize the validation results.
 GMAT H7 uses shared MOON_PA orientation with an inertial-frame correction. GMAT LLO/LEO endpoint offsets from nominal grids reach 2.70 microseconds. Basilisk uses 1 s communication/task updates with adaptive integration; Orekit uses shared frame orientations.
@@ -96,28 +97,35 @@ GMAT H7 uses shared MOON_PA orientation with an inertial-frame correction. GMAT 
 | Nyx              | 0.00121614 | 0.221886         | 1.02998          |
 | Basilisk         | 0.347638   | 0.0262097        | 101.602          |
 
-: Maximum sampled position residuals against documented `HighFidelityEphemerisModel.jl` with `SpiceParameters` or numerical mirrors, not absolute trajectory errors. First row uses `HighFidelityEphemerisModel.jl` with `EphemeridesParameters`.\\label{tbl:position-maxima}
+: Maximum sampled position residuals against `HighFidelityEphemerisModel.jl` with `SpiceParameters`. First row uses `HighFidelityEphemerisModel.jl` with `EphemeridesParameters`.\\label{tbl:position-maxima}
 
 ![Position residuals against `HighFidelityEphemerisModel.jl` SPICE trajectories or tool-specific numerical mirrors, not absolute trajectory accuracy. Initialization ($t=0$) is omitted; later stored zeros appear as logarithmic gaps without flooring. Output sampling differs from integration steps. \label{fig:validation-position}](figures/validation_position_errors.png){width="100%"}
 
-Additional benchmarks evaluate `HighFidelityEphemerisModel.jl`'s alternative ephemeris backends. The Julia-native `Ephemerides.jl` backend reduced propagation time relative to direct SPICE evaluation from 0.2473 to 0.1236 s for a point-mass near-rectilinear halo orbit case, and from 0.8677 to 0.7031 s with lunar spherical harmonics. These timings are configuration-specific, not universal speedups.
+We also evaluate the runtime performance between the SPICE-based and the Julia-native `Ephemerides.jl` backend.
+We find the Julia-native backend reduces propagation time from X to Y seconds for ... (FIXME)
 
 Table \\ref{tbl:warm-performance} reports end-to-end propagation at `HighFidelityEphemerisModel.jl` source commit `2aca3a70ffffad4e61db28f68c8c9d6d7630f1e9` (Julia 1.10.11). 
-For each case/backend, an initial untimed solve excludes the initial Julia compilation run; a separate allocation-measurement solve also precedes the ten timed repetitions. No compilation time is subtracted from measured runs. Timings include ODE construction, Vern8 propagation and in-memory output with initialized backends; backend setup and serialization are excluded.
-
+For each case/backend, an initial untimed solve excludes the initial Julia compilation run.
+Timings include the IVP construction, `Vern8` propagation and in-memory output with initialized backends; backend setup and serialization are excluded.
 
 | Case | SPICE \[s\] | Ephemerides \[s\] | Time ratio |
 | ---- | ----------- | ----------------- | ---------- |
 | P3   | 0.2472955   | 0.1236207         | 0.4999     |
 | H7   | 0.8677467   | 0.7031303         | 0.8103     |
 
-
 : Median propagation (ten repetitions, one Julia thread). Ratio: Ephemerides/SPICE. P3 uses point masses; H7 adds lunar 4x4. \\label{tbl:warm-performance}
 
 
-## Example
+# Research impact
 
-The following code provides a short example solving an IVP for an initial state in a Moon-centered J2000 inertial frame over the course of 6 hours.
+`HighFidelityEphemerisModel.jl` has supported several research on high-fidelity trajectory design and GNC in cisluar space [@shimane2026optimizationbasedformationflightlibration; @Shimane2026-qj; @phung2026verticalorbits]. This application demonstrates the integration of ephemeris-based spacecraft dynamics, sensitivity analysis, and trajectory propagation into larger numerical optimization and mission-analysis workflows.
+The package is registered in the Julia General registry, distributed under the MIT licence, and installed with the following command:
+
+```shell
+] add HighFidelityEphemerisModel
+```
+
+The following example solves an IVP for an initial state in a Moon-centered J2000 inertial frame over the course of 6 hours.
 The dynamics model accounts for third-body perturbations of the Earth and the Sun.
 
 ```julia
@@ -137,22 +145,16 @@ x0 = [1.05, 0.0, 0.3, 0.5, 1.0, 0.0]          # canonical units DU, DU/TU
 tspan = (0.0, 6 * 3600 / params.TU)           # canonical unit TU
 prob = ODEProblem(eom_Nbody!, x0, tspan, params)
 sol = solve(prob, Vern8(); reltol=1e-12, abstol=1e-12)
-@assert sol.t[end] == tspan[2] && all(u -> all(isfinite, u), sol.u)
-kclear()
 ```
 
-# Research impact
-
-`HighFidelityEphemerisModel.jl` has supported several research on high-fidelity trajectory design and GNC in cisluar space [@shimane2026optimizationbasedformationflightlibration; @Shimane2026-qj; @phung2026verticalorbits]. This application demonstrates the integration of ephemeris-based spacecraft dynamics, sensitivity analysis, and trajectory propagation into larger numerical optimization and mission-analysis workflows.
 
 # AI usage disclosure
 
-AI was used to help develop the code and to draft and edit parts of this manuscript.
-All text produced with AI assistance was reviewed, revised, and verified by the authors before
-inclusion in the code or paper.
+AI was used to support the development of the code and edit parts of this manuscript.
+All content generated with AI assistance was reviewed, revised, and verified by the authors before inclusion in the library or paper.
 
 # Acknowledgements
 
-The authors acknowledge the developers and maintainers of the Julia scientific computing ecosystem and NASA's Navigation and Ancillary Information Facility (NAIF), whose software and documentation provide important foundations for this work.
+The authors acknowledge the developers and maintainers of the Julia scientific computing ecosystem and Navigation and Ancillary Information Facility (NAIF) at the Jet Propulsion Laboratory, whose software and documentation provide important foundations for this work.
 
 # References
