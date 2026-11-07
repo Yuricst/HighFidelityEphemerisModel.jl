@@ -13,11 +13,6 @@ include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
 furnsh_kernels()
 verbose = false
 
-@testset "Ephemeris interpolation" begin
-    include("test_interpolate_ephem.jl")
-    include("test_interpolate_transformation.jl")
-end
-
 @testset "N-body ODE             " begin
     include("test_thirdbody.jl")
     include("test_sun_analytic.jl")
@@ -26,9 +21,10 @@ end
     include("test_eom_dispatch.jl")
     include("test_parameters.jl")
     include("test_Nbody_SPICE.jl")
-    include("test_Nbody_Interp.jl")
     include("test_Nbody_Ephemerides.jl")
     include("test_Nbody_ensemble.jl")
+    include("test_ephemerides_backend.jl")
+    include("test_misc_coverage.jl")
 end
 
 @testset "Spherical harmonics    " begin
@@ -36,8 +32,8 @@ end
     include("test_NbodySH_SPICE.jl")
     include("test_NbodySH_Ephemerides.jl")
     include("test_Earth_Ephemerides.jl")
-    include("test_NbodySH_Interp.jl")
     include("test_NbodySH_ensemble.jl")
+    include("test_perturbations_coverage.jl")
 end
 
 @testset "Callbacks              " begin
@@ -50,16 +46,18 @@ end
 
 @testset "SPK generation helpers " begin
     include("test_ode_sol_to_spk.jl")
-end
-
-if get(ENV, "JULIA_COVERAGE", "") == "true"
-    @testset "Module coverage        " begin
-        include("coverage.jl")
-    end
+    include("test_spk_utils.jl")
+    include("test_spk_pipeline.jl")
 end
 
 @testset "Gauss variational EOM  " begin
     include("test_gve.jl")
     include("test_gve_eq.jl")
     include("test_gve_validation.jl")
+end
+
+if get(ENV, "JULIA_COVERAGE", "") == "true"
+    @testset "Module coverage        " begin
+        include("coverage.jl")
+    end
 end

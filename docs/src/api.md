@@ -10,15 +10,13 @@ Pages   = [
 ]
 ```
 
-## Ephemerides and interpolation
+## Ephemerides
 
 ```@autodocs
 Modules = [HighFidelityEphemerisModel]
 Order   = [:type, :constant, :function]
 Pages   = [
     "ephemerides.jl",
-    "ephemeris_interpolation.jl",
-    "transformation_interpolation.jl",
 ]
 ```
 
@@ -31,10 +29,8 @@ Modules = [HighFidelityEphemerisModel]
 Order   = [:type, :constant, :function]
 Pages   = [
     "eoms/eom_Nbody_SPICE.jl",
-    "eoms/eom_Nbody_Interp.jl",
     "eoms/eom_Nbody_Ephemerides.jl",
     "eoms/eom_NbodySH_SPICE.jl",
-    "eoms/eom_NbodySH_Interp.jl",
     "eoms/eom_NbodySH_Ephemerides.jl",
     "eoms/eom_dispatch.jl",
 ]
@@ -44,8 +40,8 @@ Pages   = [
 
 The GVE interfaces reuse the Cartesian N-body and N-body+SH force models. See
 the [Gauss variational equations](@ref) tutorial for state conventions and
-formulation domains. The N-body wrappers dispatch on `SpiceParameters`,
-`InterpParameters`, and `EphemeridesParameters`; states, time, acceleration,
+formulation domains. The N-body wrappers dispatch on `SpiceParameters`
+and `EphemeridesParameters`; states, time, acceleration,
 and gravitational parameters use the consistent units defined by the supplied
 parameter object.
 

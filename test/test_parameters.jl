@@ -19,14 +19,6 @@ if !@isdefined(HighFidelityEphemerisModel)
 end
 
 
-function _parameters_test_kernel(kind::String, name::String)
-    if haskey(ENV, "SPICE")
-        return joinpath(ENV["SPICE"], kind, name)
-    else
-        return joinpath(@__DIR__, "../spice/test", name)
-    end
-end
-
 _parameters_test_density(et, r_km) = 1e-12 * exp(-(norm(r_km) - 1737.4) / 50.0)
 
 
@@ -38,12 +30,10 @@ function _parameters_test_all(; drag::Bool = false, srp::Bool = true, kwargs...)
     kw = (; include_srp = srp, frame_PCPF = "MOON_PA",
         include_drag = drag, f_density = drag ? _parameters_test_density : nothing, kwargs...)
     ps = HighFidelityEphemerisModel.SpiceParameters(et0, DU, GMs, naif_ids, "J2000", "NONE"; kw...)
-    pi = HighFidelityEphemerisModel.InterpParameters(et0, DU, GMs, naif_ids, "J2000", "NONE";
-        interpolate_ephem_span = [et0, et0 + 3 * 86400.0], kw...)
     pe = HighFidelityEphemerisModel.EphemeridesParameters(et0, DU, GMs, naif_ids, "J2000", "NONE";
-        ephemerides_files = [_parameters_test_kernel("spk", "de440.bsp"),
-                             _parameters_test_kernel("pck", "moon_pa_de440_200625.bpc")], kw...)
-    return ps, pi, pe
+        ephemerides_files = [hfem_test_kernel("spk", "de440.bsp"),
+                             hfem_test_kernel("pck", "moon_pa_de440_200625.bpc")], kw...)
+    return ps, pe
 end
 
 
@@ -70,7 +60,7 @@ function test_parameter_field_types_and_api()
             T = typeof(p)
             for name in fieldnames(T)
                 name == :u && continue      # user-owned flexible vector, not read by the EOMs
-                @test isconcretetype(fieldtype(T, name)) || fieldtype(T, name) <: Union{Nothing,String,HighFidelityEphemerisModel.InterpolatedTransformation}
+                @test isconcretetype(fieldtype(T, name)) || fieldtype(T, name) <: Union{Nothing,String}
             end
             @test p.DU === 3000.0
             @test p.TU isa Float64 && p.VU isa Float64
@@ -79,9 +69,13 @@ function test_parameter_field_types_and_api()
             for name in (:et0, :DU, :TU, :VU, :GMs, :mus, :naif_ids, :naif_frame, :abcorr,
                     :spherical_harmonics_data, :frame_PCPF, :factorial_alias, :include_srp,
                     :k_srp_cannonball, :idx_sun, :include_drag, :k_drag, :omega_atm, :f_density, :u,
-                    :interpolated_ephems, :interpolated_transformation,
                     :ephemerides_provider, :ephemerides_frame_system)
                 @test name in propertynames(p)
+            end
+            # properties of the removed interpolated backend are gone
+            for name in (:interpolated_ephems, :interpolated_transformation)
+                @test !(name in propertynames(p))
+                @test_throws Exception getproperty(p, name)
             end
 
             # mutation keeps working (with conversion)
@@ -115,23 +109,22 @@ function test_eom_type_stability_and_allocations()
     dx = zeros(6)
     t = 0.01
     for drag in (false, true)
-        ps, pi, pe = _parameters_test_all(; drag = drag)
-        for p in (ps, pi, pe)
+        ps, pe = _parameters_test_all(; drag = drag)
+        for p in (ps, pe)
             @inferred HighFidelityEphemerisModel.eom_Nbody(x, p, t)
             @inferred HighFidelityEphemerisModel.eom_NbodySH(x, p, t)
             @inferred HighFidelityEphemerisModel.eom_Nbody(ForwardDiff.Dual.(x, 1.0), p, t)
         end
-        # Interp/Ephemerides in-place EOMs do not allocate; with drag only the
+        # Ephemerides in-place EOMs do not allocate; with drag only the
         # `r_km::Vector` handed to the user's `f_density` callback may allocate
         nmax_alloc = drag ? 2 : 0
-        @test _eom_allocations(HighFidelityEphemerisModel.eom_Nbody!, dx, x, pi, t) <= nmax_alloc
         @test _eom_allocations(HighFidelityEphemerisModel.eom_Nbody!, dx, x, pe, t) <= nmax_alloc
     end
 end
 
 
 function test_ephemerides_thread_caches_frame_system_only()
-    files = [_parameters_test_kernel("spk", "de440.bsp"), _parameters_test_kernel("pck", "moon_pa_de440_200625.bpc")]
+    files = [hfem_test_kernel("spk", "de440.bsp"), hfem_test_kernel("pck", "moon_pa_de440_200625.bpc")]
     provider = HighFidelityEphemerisModel.Ephemerides.EphemerisProvider(files)
     @test all(==(Threads.nthreads()), _ephemerides_cache_lengths(provider))   # unpadded provider
 
@@ -202,7 +195,7 @@ function test_ephemerides_lowercase_earth_frames()
     naif_ids = ["399", "301", "10"]
     GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
     et0 = str2et("2026-01-05T00:00:00")
-    files = [_parameters_test_kernel("spk", "de440.bsp"), _parameters_test_kernel("pck", "earth_latest_high_prec.bpc")]
+    files = [hfem_test_kernel("spk", "de440.bsp"), hfem_test_kernel("pck", "earth_latest_high_prec.bpc")]
     x = [1.05, 0.0, 0.01, 0.0, 1.0, 0.0]
     for frame in ("ITRF93", "IAU_EARTH")
         kw = (; include_srp = true, include_drag = true, f_density = _parameters_test_density)
@@ -240,8 +233,8 @@ end
 
 function _sh_test_params(nmax = 6)
     filepath = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab")
-    _, pi, _ = _parameters_test_all(; filepath_spherical_harmonics = filepath, nmax = nmax)
-    return pi
+    _, pe = _parameters_test_all(; filepath_spherical_harmonics = filepath, nmax = nmax)
+    return pe
 end
 
 # replace one entry of the SH dictionary on a copy of `p` (the copy shares nothing new)

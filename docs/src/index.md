@@ -8,9 +8,9 @@ What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
 - Cartesian and Gauss variational equation propagation in modified equinoctial, classical Keplerian, and ordinary equinoctial elements
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
-- SPICE, Ephemerides.jl, and legacy interpolated-ephemeris parameter backends
+- SPICE and Ephemerides.jl parameter backends
 
-The preferred propagation API uses `SpiceParameters`, `EphemeridesParameters`, or `InterpParameters` together with generic EOM names such as `eom_Nbody!` and `eom_NbodySH!`.
+The preferred propagation API uses `SpiceParameters` or `EphemeridesParameters` together with generic EOM names such as `eom_Nbody!` and `eom_NbodySH!`.
 
 Cartesian states remain the general/default representation. Gauss variational
 equations are available when propagation in orbital elements is useful; see

@@ -1,6 +1,5 @@
 """
-Test integrating N-body dynamics with SPICE call within eom.
-Uses low-level API
+Test event callbacks (true-anomaly events) on N-body dynamics (EphemeridesParameters).
 """
 
 using LinearAlgebra
@@ -8,8 +7,13 @@ using OrdinaryDiffEq
 using SPICE
 using Test
 
+if !@isdefined(hfem_test_kernel)
+    include(joinpath(@__DIR__, "utils.jl"))
+end
+
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
+    furnsh_kernels()
 end
 
 
@@ -26,11 +30,9 @@ test_callback_trueanomaly = function()
     DU = 3000.0
 
     et0 = str2et("2026-01-05T00:00:00")
-    etf = et0 + 30 * 86400.0
-    interpolate_ephem_span = [et0, etf]
-    parameters = HighFidelityEphemerisModel.InterpParameters(
+    parameters = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        interpolate_ephem_span=interpolate_ephem_span)
+        ephemerides_files = hfem_test_kernel("spk", "de440.bsp"))
 
     # initial state (in canonical scale)
     x0_dim, _ = spkezr("-60000", et0, naif_frame, abcorr, naif_ids[1])

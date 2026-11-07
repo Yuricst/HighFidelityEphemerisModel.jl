@@ -6,6 +6,34 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
 
 ### Breaking changes
 
+- **The interpolated-ephemeris backend has been removed.** It was the legacy
+  compatibility path; `EphemeridesParameters` (Ephemerides.jl/FrameTransformations.jl)
+  covers the same use cases (SPICE-free, `EnsembleThreads`-safe, ForwardDiff-compatible
+  EOMs) without the sampling-step accuracy trade-off. Removed exports:
+  - `InterpParameters`;
+  - `eom_Nbody_Interp!`, `eom_Nbody_Interp`, `eom_stm_Nbody_Interp!`,
+    `eom_stm_Nbody_Interp_fd!`;
+  - `eom_NbodySH_Interp!`, `eom_NbodySH_Interp`, `eom_stm_NbodySH_Interp_fd!`;
+  - `InterpolatedEphemeris`, `InterpolatedTransformation`.
+
+  Also removed (unexported, previously reachable as `HighFidelityEphemerisModel.<name>`):
+  `dfdx_NbodySH_Interp_fd`, the `get_pos`, `get_state`, `get_euler_angles` and `pxform`
+  methods for the interpolated types, and `rotmat1`, `rotmat2`, `rotmat3`.
+  `HighFidelityEphemerisModel.pxform` now refers to `SPICE.pxform`.
+
+  Passing `interpolate_ephem_span` or `interpolation_time_step` to `SpiceParameters`,
+  `EphemeridesParameters` or `HighFidelityEphemerisModelParameters` now throws an
+  `ArgumentError`, as does `HighFidelityEphemerisModelParameters(...; backend = :interp)`;
+  previously `HighFidelityEphemerisModelParameters` returned `InterpParameters` when
+  `interpolate_ephem_span` was given. To migrate, drop those
+  keywords and pass `ephemerides_files` (e.g. `[de440.bsp, moon_pa_de440_200625.bpc]`) or
+  `ephemerides_provider` to `EphemeridesParameters`; the generic `eom_Nbody!` /
+  `eom_NbodySH!` and the GVE wrappers dispatch on it, and the STM EOMs are
+  `eom_stm_Nbody_Ephemerides_fd!` / `eom_stm_NbodySH_Ephemerides_fd!`.
+- **`interpolated_ephems` / `interpolated_transformation` properties removed.**
+  `SpiceParameters` and `EphemeridesParameters` used to report these as `nothing` (and
+  list them in `propertynames`). Accessing them now throws, so checks such as
+  `isnothing(params.interpolated_transformation)` must be deleted.
 - **`EphemeridesParameters` reject aberration corrections.** The Ephemerides.jl /
   FrameTransformations.jl backend only returns geometric states, so an `abcorr` such as
   `"LT+S"` used to be accepted and **silently ignored**: the dynamics were identical to
@@ -20,6 +48,10 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
   are unchanged; only code that reads `params.abcorr` back sees the difference. Other
   characters (tabs, non-ASCII) are kept, so strings that SPICE rejects are still
   rejected.
+
+### Dependencies
+
+- `Interpolations` and `Dierckx` are no longer dependencies.
 
 ## v0.3.0
 

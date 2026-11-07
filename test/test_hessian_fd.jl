@@ -4,8 +4,13 @@ using LinearAlgebra
 using SPICE
 using Test
 
+if !@isdefined(hfem_test_kernel)
+    include(joinpath(@__DIR__, "utils.jl"))
+end
+
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))
+    furnsh_kernels()
 end
 
 
@@ -20,9 +25,6 @@ test_hessian_fd = function(;verbose::Bool = false)
     nmax = 4
 
     et0 = str2et("2020-01-01T00:00:00")
-    etf = et0 + 30 * 86400.0
-    interpolate_ephem_span = [et0, etf]
-    interpolation_time_step = 30.0
     parameters_spice = HighFidelityEphemerisModel.SpiceParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
         filepath_spherical_harmonics = filepath_spherical_harmonics,
@@ -33,13 +35,13 @@ test_hessian_fd = function(;verbose::Bool = false)
         srp_Am = 0.002,
         srp_P0 = 4.56e-6,
     )
-    parameters_interp = HighFidelityEphemerisModel.InterpParameters(
+    parameters_ephem = HighFidelityEphemerisModel.EphemeridesParameters(
         et0, DU, GMs, naif_ids, naif_frame, abcorr;
-        interpolate_ephem_span=interpolate_ephem_span,
+        ephemerides_files = [hfem_test_kernel("spk", "de440.bsp"),
+                             hfem_test_kernel("pck", "moon_pa_de440_200625.bpc")],
         filepath_spherical_harmonics = filepath_spherical_harmonics,
         nmax = nmax,
         frame_PCPF = "MOON_PA",
-        interpolation_time_step = interpolation_time_step,
         include_srp = true,
         srp_Cr = 1.15,
         srp_Am = 0.002,
@@ -53,9 +55,9 @@ test_hessian_fd = function(;verbose::Bool = false)
     # list of eom's to check for hessian evaluation
     eom_param_pairs = [
         (HighFidelityEphemerisModel.eom_Nbody, parameters_spice),
-        (HighFidelityEphemerisModel.eom_Nbody, parameters_interp),
+        (HighFidelityEphemerisModel.eom_Nbody, parameters_ephem),
         (HighFidelityEphemerisModel.eom_NbodySH, parameters_spice),
-        (HighFidelityEphemerisModel.eom_NbodySH, parameters_interp),
+        (HighFidelityEphemerisModel.eom_NbodySH, parameters_ephem),
     ]
 
     for (eom, parameters) in eom_param_pairs
