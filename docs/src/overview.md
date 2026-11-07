@@ -297,7 +297,6 @@ Backends are selected by the parameter type:
 
 - `SpiceParameters`: query SPICE at runtime
 - `EphemeridesParameters`: use Ephemerides.jl/FrameTransformations.jl at runtime
-- `InterpParameters`: use pre-interpolated ephemerides and transformations
 
 The preferred EOM names are generic and dispatch on the parameter type:
 
@@ -306,7 +305,7 @@ The preferred EOM names are generic and dispatch on the parameter type:
 
 The compatibility constructor `HighFidelityEphemerisModelParameters(...)` remains available only for backward compatibility and returns one of the concrete parameter types based on the supplied backend inputs.
 
-Backend-specific names (`eom_Nbody_SPICE!`, `eom_Nbody_Interp!`, `eom_Nbody_Ephemerides!`, `eom_NbodySH_SPICE!`, `eom_NbodySH_Interp!`, `eom_NbodySH_Ephemerides!`) remain available for compatibility and backend-specific tests.
+Backend-specific names (`eom_Nbody_SPICE!`, `eom_Nbody_Ephemerides!`, `eom_NbodySH_SPICE!`, `eom_NbodySH_Ephemerides!`) remain available for compatibility and backend-specific tests.
 
 The table below summarizes the models. Note:
 
@@ -318,12 +317,13 @@ The table below summarizes the models. Note:
 |------------|-------------------|---------|---------------------------------|-------|
 | `SpiceParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_SPICE_fd!`, `eom_stm_NbodySH_SPICE_fd!` | no | direct SPICE calls |
 | `EphemeridesParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Ephemerides_fd!`, `eom_stm_NbodySH_Ephemerides_fd!` | yes | preferred non-SPICE backend |
-| `InterpParameters` | `eom_Nbody!`, `eom_NbodySH!` | `eom_stm_Nbody_Interp_fd!`, `eom_stm_NbodySH_Interp_fd!` | yes | legacy compatibility backend |
 
 
 !!! note
 
-    In order to use Julia's dual numbers, use `EphemeridesParameters` or `InterpParameters`, which avoid direct SPICE calls inside the EOM.
+    All backends accept ForwardDiff dual-number states (this is how the `_fd` STM EOMs
+    compute Jacobians). `EphemeridesParameters` avoids SPICE calls inside the EOM
+    altogether, so it is also thread-safe and faster.
 
 !!! note
 
@@ -340,6 +340,10 @@ The table below summarizes the models. Note:
     kernel needed). Other `frame_PCPF` values raise an error; a custom
     `FrameTransformations.FrameSystem` can be passed as `ephemerides_frame_system`.
 
-!!! warning
+!!! compat "Interpolated backend removed after v0.3.0"
 
-    The `_Interp` backend is retained as a legacy/temporary compatibility path. Its accuracy depends on `interpolation_time_step`; for new non-SPICE workflows, prefer `EphemeridesParameters`.
+    The interpolated-ephemeris backend (`InterpParameters`, the `eom_*_Interp*` functions,
+    `InterpolatedEphemeris` and `InterpolatedTransformation`) has been removed. Use
+    `EphemeridesParameters` for SPICE-free, thread-safe and ForwardDiff-compatible
+    propagation. Passing `interpolate_ephem_span` or `interpolation_time_step` to a
+    parameter constructor now throws an `ArgumentError`.

@@ -136,19 +136,16 @@ end
     eq = [2.0, 0.1, -0.05, 0.2, -0.1, 0.7]
     params_SPICE = HighFidelityEphemerisModel.SpiceParameters(
         0.0, 1.0, [1.0], ["399"], "J2000", "NONE")
-    params_Interp = HighFidelityEphemerisModel.InterpParameters(
-        0.0, 1.0, [1.0], ["399"], "J2000", "NONE";
-        interpolate_ephem_span = [0.0, 7200.0])
     params_Ephemerides = HighFidelityEphemerisModel.EphemeridesParameters(
         0.0, 1.0, [1.0], ["399"], "J2000", "NONE";
         ephemerides_frame_system = :test_frame_system)
     expected = zeros(6)
     HighFidelityEphemerisModel.gve_eq_derivs!(expected, eq, zeros(3), 1.0)
 
-    for params in (params_SPICE, params_Interp, params_Ephemerides)
+    for params in (params_SPICE, params_Ephemerides)
         @test isapprox(HighFidelityEphemerisModel.gve_eq_Nbody(eq, params, 0.0), expected)
     end
-    for params in (params_Interp, params_Ephemerides)
+    for params in (params_SPICE, params_Ephemerides)
         @test isapprox(HighFidelityEphemerisModel.gve_eq_NbodySH(eq, params, 0.0), expected)
     end
 end

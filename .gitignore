@@ -31,3 +31,6 @@ Manifest*.toml
 .DS_Store
 /temp
 paper/jats/
+
+# SPICE kernels downloaded for local testing (see CONTRIBUTING.md)
+/spice

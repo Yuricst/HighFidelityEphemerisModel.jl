@@ -10,15 +10,30 @@
 
 abstract type _HFEMBackend end
 struct _SpiceBackend <: _HFEMBackend end
-struct _InterpBackend <: _HFEMBackend end
 struct _EphemeridesBackend <: _HFEMBackend end
 
 _hfem_backend(::SpiceParameters) = _SpiceBackend()
-_hfem_backend(::InterpParameters) = _InterpBackend()
 _hfem_backend(::EphemeridesParameters) = _EphemeridesBackend()
 
 
 @inline _hfem_et(params, t) = params.et0 + t * params.TU
+
+
+# --- per-evaluation checks of mutable parameter fields a backend cannot honour.
+#
+# The Ephemerides.jl/FrameTransformations backend only returns geometric states, so it
+# would silently ignore an aberration correction. `abcorr` is validated at construction
+# and on `params.abcorr = ...`; this cheap per-evaluation re-check is a backstop for
+# writes that bypass `setproperty!` (e.g. `setfield!`). Called from `_hfem_accel`, so it
+# covers the Cartesian EOMs, their STM/Jacobian variants, and the GVEs.
+@inline _check_backend_params(::_HFEMBackend, params) = nothing
+
+@inline function _check_backend_params(::_EphemeridesBackend, params)
+    # fast path: `abcorr` is stored in canonical spelling (see `_canonical_abcorr`);
+    # the fallback is also non-allocating for a valid non-canonical "none"
+    params.abcorr == "NONE" || _validate_ephemerides_abcorr(params.abcorr)
+    return nothing
+end
 
 
 # Frame-name -> FrameTransformations axes mapping used by the EOMs. This is the same
@@ -31,12 +46,6 @@ _hfem_backend(::EphemeridesParameters) = _EphemeridesBackend()
 @inline function _third_body_pos(::_SpiceBackend, params, i::Int, et)
     naif_ids = params.naif_ids
     pos, _ = spkpos(naif_ids[i], et, params.naif_frame, params.abcorr, naif_ids[1])
-    DU = params.DU
-    return (pos[1] / DU, pos[2] / DU, pos[3] / DU)
-end
-
-@inline function _third_body_pos(::_InterpBackend, params, i::Int, et)
-    pos = _get_pos3(params.interpolated_ephems[i-1], et)
     DU = params.DU
     return (pos[1] / DU, pos[2] / DU, pos[3] / DU)
 end
@@ -59,21 +68,23 @@ end
 
 @inline _rowmajor9(M) = (M[1, 1], M[1, 2], M[1, 3], M[2, 1], M[2, 2], M[2, 3], M[3, 1], M[3, 2], M[3, 3])
 
+# 3x3 `Matrix` from a row-major 9-tuple (avoids the boxing of the `[a b c; ...]` literal)
+function _matrix33(R::NTuple{9,T}) where {T}
+    M = Matrix{T}(undef, 3, 3)
+    @inbounds begin
+        M[1, 1] = R[1]; M[1, 2] = R[2]; M[1, 3] = R[3]
+        M[2, 1] = R[4]; M[2, 2] = R[5]; M[2, 3] = R[6]
+        M[3, 1] = R[7]; M[3, 2] = R[8]; M[3, 3] = R[9]
+    end
+    return M
+end
+
 function _pcpf_rotation(::_SpiceBackend, params, et)
     frame_PCPF = params.frame_PCPF
     isnothing(frame_PCPF) && error(
         "`params.frame_PCPF` must be set when drag or spherical harmonics are enabled."
     )
     return _rowmajor9(SPICE.pxform(params.naif_frame, frame_PCPF, et))
-end
-
-function _pcpf_rotation(::_InterpBackend, params, et)
-    transformation = params.interpolated_transformation
-    isnothing(transformation) && error(
-        "`params.interpolated_transformation` is missing: construct InterpParameters with " *
-        "`frame_PCPF` when drag or spherical harmonics are enabled."
-    )
-    return _pxform_tuple(transformation, et)
 end
 
 function _pcpf_rotation(::_EphemeridesBackend, params, et)
@@ -207,6 +218,7 @@ end
 # implementation: central body, then for each body third-body and SRP terms, then
 # drag, then spherical harmonics.
 @inline function _hfem_accel(backend::_HFEMBackend, x, params, t, ::Val{include_sh}, ::Val{include_central}) where {include_sh,include_central}
+    _check_backend_params(backend, params)
     rx, ry, rz = x[1], x[2], x[3]
     vx, vy, vz = x[4], x[5], x[6]
     mus = params.mus
