@@ -72,10 +72,11 @@ Figure \\ref{fig:hfem-architecture} summarizes these interfaces.
 ## Validation
 
 The package has been evaluated through numerical comparisons with established astrodynamics libraries, including GMAT, Orekit, Nyx, and Basilisk. 
-Three representative cases encompass a seven-day near-rectilinear halo orbit (H7), a low lunar orbit (LLO-MESH4), and a low Earth orbit (LEO-EMSH4). Each case includes third-body gravitational perturbations and spherical harmonics terms up to degree/order-four.
+Three representative cases encompass a seven-day near-rectilinear halo orbit (H7), a low lunar orbit (LLO-MESH4), and a low Earth orbit (LEO-EMSH4). Each case includes third-body gravitational perturbations and spherical harmonics terms up to degree/order-four, and are summarized in Table \\ref{tbl:validation-cases}.
 Residuals use documented `HighFidelityEphemerisModel.jl` SPICE trajectories, with tool-specific numerical mirrors for Nyx and LLO Orekit; they measure agreement, not absolute accuracy. These comparisons provide quantitative evidence of numerical consistency across different propagation frameworks while accounting for differences in integrators, ephemeris evaluation, and model implementation.
 
-Table \\ref{tbl:validation-cases}, Figure \\ref{fig:validation-position}, and Table \\ref{tbl:position-maxima} summarize these comparisons. GMAT H7 uses shared MOON_PA orientation with an inertial-frame correction. GMAT LLO/LEO endpoint offsets from nominal grids reach 2.70 microseconds. Basilisk uses 1 s communication/task updates with adaptive integration; Orekit uses shared frame orientations.
+Figure \\ref{fig:validation-position} and Table \\ref{tbl:position-maxima} summarize the validation results.
+GMAT H7 uses shared MOON_PA orientation with an inertial-frame correction. GMAT LLO/LEO endpoint offsets from nominal grids reach 2.70 microseconds. Basilisk uses 1 s communication/task updates with adaptive integration; Orekit uses shared frame orientations.
 
 
 | Case      | Central body | Third bodies | Spherical harmonics frame  | Integration time |
@@ -101,7 +102,8 @@ Table \\ref{tbl:validation-cases}, Figure \\ref{fig:validation-position}, and Ta
 
 Additional benchmarks evaluate `HighFidelityEphemerisModel.jl`'s alternative ephemeris backends. The Julia-native `Ephemerides.jl` backend reduced propagation time relative to direct SPICE evaluation from 0.2473 to 0.1236 s for a point-mass near-rectilinear halo orbit case, and from 0.8677 to 0.7031 s with lunar spherical harmonics. These timings are configuration-specific, not universal speedups.
 
-Table \\ref{tbl:warm-performance} reports end-to-end propagation at `HighFidelityEphemerisModel.jl` source commit `2aca3a70ffffad4e61db28f68c8c9d6d7630f1e9` (Julia 1.10.11). For each case/backend, an initial untimed solve excludes the initial Julia compilation run; a separate allocation-measurement solve also precedes the ten timed repetitions. No compilation time is subtracted from measured runs. Timings include ODE construction, Vern8 propagation and in-memory output with initialized backends; backend setup and serialization are excluded.
+Table \\ref{tbl:warm-performance} reports end-to-end propagation at `HighFidelityEphemerisModel.jl` source commit `2aca3a70ffffad4e61db28f68c8c9d6d7630f1e9` (Julia 1.10.11). 
+For each case/backend, an initial untimed solve excludes the initial Julia compilation run; a separate allocation-measurement solve also precedes the ten timed repetitions. No compilation time is subtracted from measured runs. Timings include ODE construction, Vern8 propagation and in-memory output with initialized backends; backend setup and serialization are excluded.
 
 
 | Case | SPICE \[s\] | Ephemerides \[s\] | Time ratio |
@@ -112,10 +114,8 @@ Table \\ref{tbl:warm-performance} reports end-to-end propagation at `HighFidelit
 
 : Median propagation (ten repetitions, one Julia thread). Ratio: Ephemerides/SPICE. P3 uses point masses; H7 adds lunar 4x4. \\label{tbl:warm-performance}
 
-The package is distributed through Julia's package registry and provides documented examples, automated tests, and continuous integration to support reproducible research and further software development.
 
-
-# Example
+## Example
 
 The following code provides a short example solving an IVP for an initial state in a Moon-centered J2000 inertial frame over the course of 6 hours.
 The dynamics model accounts for third-body perturbations of the Earth and the Sun.
