@@ -30,6 +30,8 @@ Manifest*.toml
 # Mac OSX tmp file
 .DS_Store
 /temp
+
+# JOSS generated files
 paper/jats/
 
 # SPICE kernels downloaded for local testing (see CONTRIBUTING.md)
