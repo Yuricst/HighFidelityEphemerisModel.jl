@@ -184,5 +184,22 @@ function test_eom_stm_NbodySH_SPICE(;verbose=false)
 end
 
 
+# Without a gravity field file the SH EOM must reduce to the point-mass N-body EOM
+test_eom_NbodySH_SPICE_without_harmonics = function()
+    naif_ids = ["301", "399", "10"]
+    GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
+    et0 = str2et("2020-01-01T00:00:00")
+    parameters = HighFidelityEphemerisModel.SpiceParameters(et0, 1737.4, GMs, naif_ids, "J2000", "NONE")
+    x = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]
+    dx_sh = similar(x)
+    dx_nb = similar(x)
+    HighFidelityEphemerisModel.eom_NbodySH_SPICE!(dx_sh, x, parameters, 0.1)
+    HighFidelityEphemerisModel.eom_Nbody_SPICE!(dx_nb, x, parameters, 0.1)
+    @test dx_sh ≈ dx_nb
+    @test HighFidelityEphemerisModel.eom_NbodySH_SPICE(x, parameters, 0.1) ≈ dx_nb
+end
+
+
 test_eom_NbodySH_SPICE()
+test_eom_NbodySH_SPICE_without_harmonics()
 test_eom_stm_NbodySH_SPICE(;verbose = false)

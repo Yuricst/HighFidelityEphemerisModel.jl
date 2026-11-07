@@ -32,7 +32,7 @@ We strive for minimal dependencies (listed in `Project.toml`), consisting of: `D
 Cartesian propagation remains the general formulation. The GVE interfaces reuse
 the same inertial HFEM force models and are available for N-body and N-body plus
 spherical-harmonic propagation with SPICE, Interp, and Ephemerides parameter
-backends. See the [Gauss variational equations tutorial](docs/src/tutorials/gve.md)
+backends. See the [Gauss variational equations tutorial](examples/gve.ipynb)
 for state conventions, supported domains, examples, and formulation-selection
 guidance.
 

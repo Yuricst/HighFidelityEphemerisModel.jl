@@ -15,6 +15,7 @@ include("perturbations/third_body.jl")
 include("perturbations/spherical_harmonics.jl")
 include("perturbations/solar_radiation_pressure.jl")
 include("perturbations/drag.jl")
+include("perturbations/sun_analytic.jl")
 include("perturbations/harrispriester.jl")
 include("perturbations/jacchiaroberts.jl")
 
@@ -23,6 +24,7 @@ include("transformation_interpolation.jl")
 include("ephemerides.jl")
 include("parameters.jl")
 
+include("eoms/eom_common.jl")
 include("eoms/eom_Nbody_SPICE.jl")
 include("eoms/eom_Nbody_Interp.jl")
 include("eoms/eom_Nbody_Ephemerides.jl")
@@ -65,7 +67,9 @@ export eom_NbodySH_Interp!, eom_NbodySH_Interp, eom_stm_NbodySH_Interp_fd!
 export eom_NbodySH_Ephemerides!, eom_NbodySH_Ephemerides, eom_stm_NbodySH_Ephemerides_fd!
 
 export get_trueanomaly_event
-export HarrisPriesterModel, harris_priester_f_density
+export HarrisPriesterModel, harris_priester_f_density, harris_priester_density
+export sun_position_analytic, sun_position_earth_fixed_analytic, ephemerides_sun_position_function
+export SphericalHarmonicsField, SphericalHarmonicsCoefficients
 export JacchiaRobertsModel, jacchia_roberts_f_density, JacchiaRobertsGeomagneticExposphericParams
 
 export ode_sol_to_spk

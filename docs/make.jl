@@ -13,6 +13,15 @@ Pkg.instantiate()
 using HighFidelityEphemerisModel
 using Documenter
 
+# Generate the tutorial pages from the Jupyter notebooks in `examples/`
+include(joinpath(@__DIR__, "notebooks.jl"))
+convert_notebooks(
+    joinpath(@__DIR__, "..", "examples"),
+    joinpath(@__DIR__, "src", "tutorials");
+    repo_url = "https://github.com/Yuricst/HighFidelityEphemerisModel.jl",
+    branch = "main",
+)
+
 makedocs(
     clean = true,
     build = joinpath(@__DIR__, "build"),

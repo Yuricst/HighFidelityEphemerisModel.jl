@@ -7,7 +7,7 @@ using Printf
 using Random
 using SPICE
 using Test
-using GLMakie
+using CairoMakie
 
 if !@isdefined(HighFidelityEphemerisModel)
     include(joinpath(@__DIR__, "../src/HighFidelityEphemerisModel.jl"))

@@ -59,9 +59,18 @@ function project_inr_to_rtn!(a_rtn, a_inr, r, v)
     length(r) == 3 || throw(DimensionMismatch("r must contain three components"))
     length(v) == 3 || throw(DimensionMismatch("v must contain three components"))
 
-    rx, ry, rz = r
-    vx, vy, vz = v
-    ax, ay, az = a_inr
+    ar, at, an = _project_inr_to_rtn3(a_inr[1], a_inr[2], a_inr[3], r[1], r[2], r[3], v[1], v[2], v[3])
+    @inbounds begin
+        a_rtn[1] = ar
+        a_rtn[2] = at
+        a_rtn[3] = an
+    end
+    return a_rtn
+end
+
+
+# Scalar (allocation-free) inertial -> RTN projection; returns a 3-tuple.
+@inline function _project_inr_to_rtn3(ax, ay, az, rx, ry, rz, vx, vy, vz)
     rnorm = sqrt(rx * rx + ry * ry + rz * rz)
     iszero(rnorm) && throw(DomainError(rnorm, "RTN is undefined for zero position"))
     hx = ry * vz - rz * vy
@@ -75,12 +84,9 @@ function project_inr_to_rtn!(a_rtn, a_inr, r, v)
     thatx = nhaty * rhatz - nhatz * rhaty
     thaty = nhatz * rhatx - nhatx * rhatz
     thatz = nhatx * rhaty - nhaty * rhatx
-    @inbounds begin
-        a_rtn[1] = rhatx * ax + rhaty * ay + rhatz * az
-        a_rtn[2] = thatx * ax + thaty * ay + thatz * az
-        a_rtn[3] = nhatx * ax + nhaty * ay + nhatz * az
-    end
-    return a_rtn
+    return (rhatx * ax + rhaty * ay + rhatz * az,
+            thatx * ax + thaty * ay + thatz * az,
+            nhatx * ax + nhaty * ay + nhatz * az)
 end
 
 
@@ -165,28 +171,39 @@ function gve_mee_derivs!(dmee, mee, a_rtn, mu)
 end
 
 
-function _perturbing_accel!(a_pert, rv, params, t, ::Val{include_sh}) where {include_sh}
-    dstate = include_sh ? eom_NbodySH(rv, params, t) : eom_Nbody(rv, params, t)
+# Non-Keplerian (perturbing) acceleration of the same force model as
+# `eom_Nbody!` / `eom_NbodySH!`, as a 3-tuple. It is accumulated directly rather
+# than as total minus central-body acceleration, which avoids cancellation.
+@inline function _perturbing_accel(rv, params, t, include_sh::Val)
     rx, ry, rz = rv[1], rv[2], rv[3]
     r2 = rx * rx + ry * ry + rz * rz
     iszero(r2) && throw(DomainError(r2, "central-body-relative position must be nonzero"))
-    central_scale = params.mus[1] / (r2 * sqrt(r2))
+    return _hfem_accel(_hfem_backend(params), rv, params, t, include_sh, Val(false))
+end
+
+
+function _perturbing_accel!(a_pert, rv, params, t, include_sh::Val)
+    ax, ay, az = _perturbing_accel(rv, params, t, include_sh)
     @inbounds begin
-        a_pert[1] = dstate[4] + central_scale * rx
-        a_pert[2] = dstate[5] + central_scale * ry
-        a_pert[3] = dstate[6] + central_scale * rz
+        a_pert[1] = ax
+        a_pert[2] = ay
+        a_pert[3] = az
     end
     return a_pert
+end
+
+
+# Perturbing acceleration projected onto RTN, as a 3-tuple.
+@inline function _perturbing_accel_rtn(rv, params, t, include_sh::Val)
+    ax, ay, az = _perturbing_accel(rv, params, t, include_sh)
+    return _project_inr_to_rtn3(ax, ay, az, rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])
 end
 
 
 function _gve_mee!(dmee, mee, params, t, include_sh)
     mu = params.mus[1]
     rv = AstrodynamicsCore.mee2rv(mee, mu)
-    a_pert = similar(rv, 3)
-    a_rtn = similar(rv, 3)
-    _perturbing_accel!(a_pert, rv, params, t, include_sh)
-    project_inr_to_rtn!(a_rtn, a_pert, view(rv, 1:3), view(rv, 4:6))
+    a_rtn = _perturbing_accel_rtn(rv, params, t, include_sh)
     return gve_mee_derivs!(dmee, mee, a_rtn, mu)
 end
 
@@ -296,10 +313,7 @@ end
 function _gve_kep!(dkep, kep, params, t, include_sh)
     mu = params.mus[1]
     rv = AstrodynamicsCore.kep2rv(kep, mu)
-    a_pert = similar(rv, 3)
-    a_rtn = similar(rv, 3)
-    _perturbing_accel!(a_pert, rv, params, t, include_sh)
-    project_inr_to_rtn!(a_rtn, a_pert, view(rv, 1:3), view(rv, 4:6))
+    a_rtn = _perturbing_accel_rtn(rv, params, t, include_sh)
     return gve_kep_derivs!(dkep, kep, a_rtn, mu)
 end
 
@@ -383,10 +397,7 @@ end
 function _gve_eq!(deq, eq, params, t, include_sh)
     mu = params.mus[1]
     rv = AstrodynamicsCore.eq2rv(eq, mu)
-    a_pert = similar(rv, 3)
-    a_rtn = similar(rv, 3)
-    _perturbing_accel!(a_pert, rv, params, t, include_sh)
-    project_inr_to_rtn!(a_rtn, a_pert, view(rv, 1:3), view(rv, 4:6))
+    a_rtn = _perturbing_accel_rtn(rv, params, t, include_sh)
     return gve_eq_derivs!(deq, eq, a_rtn, mu)
 end
 

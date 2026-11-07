@@ -39,3 +39,18 @@ function third_body_accel_classical(r_spacecraft::Vector, r_3body::Vector, mu_3b
     dr = r_spacecraft - r_3body
     return -mu_3body * (dr/norm(dr)^3 + r_3body/norm(r_3body)^3)
 end
+
+"""
+    _third_body_accel3(rx, ry, rz, sx, sy, sz, mu_3body)
+
+Allocation-free scalar form of [`third_body_accel`](@ref) (Battin's formula):
+spacecraft position `(rx, ry, rz)`, third-body position `(sx, sy, sz)`, both
+relative to the central body. Returns the acceleration as a 3-tuple.
+"""
+@inline function _third_body_accel3(rx, ry, rz, sx, sy, sz, mu_3body)
+    q = (rx * (rx - 2sx) + ry * (ry - 2sy) + rz * (rz - 2sz)) / (sx * sx + sy * sy + sz * sz)
+    F = q * (3 + 3q + q^2) / (1 + sqrt(1 + q)^3)
+    dx, dy, dz = rx - sx, ry - sy, rz - sz
+    c = -mu_3body / sqrt(dx * dx + dy * dy + dz * dz)^3
+    return (c * (rx + F * sx), c * (ry + F * sy), c * (rz + F * sz))
+end

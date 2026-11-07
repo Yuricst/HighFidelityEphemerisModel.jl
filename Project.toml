@@ -1,6 +1,6 @@
 name = "HighFidelityEphemerisModel"
 uuid = "2c790280-9c90-4c3f-8fb8-a66dc063821a"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["@yuricst, @phungd3"]
 
 [deps]

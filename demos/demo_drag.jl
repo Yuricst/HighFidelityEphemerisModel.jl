@@ -1,6 +1,6 @@
 """Demo using atmospheric drag term"""
 
-using GLMakie
+using CairoMakie
 using LinearAlgebra
 using OrdinaryDiffEq
 using SPICE
@@ -25,18 +25,24 @@ et0 = str2et("2026-01-05T00:00:00")
 naif_ids = ["399", "301", "10"]   # Earth-centered; Sun for optional third-body / SRP
 GMs = [bodvrd(ID, "GM", 1)[1] for ID in naif_ids]
 DU = 6378.0
-R_earth_km = 6378.0        # Earth radius in km (for Harris–Priester altitude; not DU)
+R_earth_km = 6378.137      # WGS-84 equatorial radius in km (Harris–Priester ellipsoid; not DU)
+flattening = 1 / 298.257223563
+h_stop = 105.0             # km; Harris–Priester density is zero below 100 km (geodetic)
 
 filepath_spherical_harmonics = joinpath(@__DIR__, "../data/earth/GGM03S.tab")
 nmax = 4
 
-f_density = HighFidelityEphemerisModel.harris_priester_f_density(R_earth_km; use_min=true)
+# Harris–Priester (Montenbruck & Gill) with diurnal bulge and analytic Sun; n = 4 for this
+# 50 deg inclination orbit (M&G: 2 for low-inclination, 6 for polar orbits).
+# (`harris_priester_f_density(6378.0; flattening=0, use_min=true)` approximates the
+# v0.2.3-and-earlier behaviour: no bulge, spherical altitude.)
+f_density = HighFidelityEphemerisModel.harris_priester_f_density(R_earth_km; flattening = flattening, n = 4)
 
 parameters = HighFidelityEphemerisModel.SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
-    frame_PCPF = "IAU_EARTH",
+    frame_PCPF = "ITRF93",   # must be Earth-fixed for the Harris-Priester bulge
     include_drag = true,
     drag_Cd = 2.2,
     drag_Am = 0.03,
@@ -48,9 +54,14 @@ x0_earth = AstrodynamicsCore.kep2rv(kep0, parameters.mus[1])
 tspan = (0.0, 3 * 86400 / parameters.TU)
 ode = ODEProblem(HighFidelityEphemerisModel.eom_Nbody!, x0_earth, tspan, parameters)
 
+# geodetic altitude, evaluated with the inertial position (the J2000/ITRF93 pole offset
+# changes it by < 0.1 km, irrelevant here)
+geodetic_altitude(r_can) = HighFidelityEphemerisModel._geodetic_lon_lat_alt(
+    r_can * parameters.DU, R_earth_km, flattening)[3]
+
 # detect hitting min altitude
 function condition(u, t, integrator) # Event when condition(u,t,integrator) == 0
-    return norm(u[1:3]) - (R_earth_km + 100.0)/parameters.DU
+    return geodetic_altitude(u[1:3]) - h_stop
 end
 affect!(integrator) = terminate!(integrator)
 cb = ContinuousCallback(condition, affect!)
@@ -65,10 +76,10 @@ labels = ["h, km", "e", "i, deg", "Ω, deg", "ω, deg", "θ, deg"]
 multipliers = [DU, 1.0, 180/π, 180/π, 180/π, 180/π]
 offset = [R_earth_km,0,0,0,0,0,0]
 fig_elements = Figure(size=(1500,600))
-ax_h = Axis(fig_elements[1,1]; xlabel="Time, hours", ylabel="h, km",
+ax_h = Axis(fig_elements[1,1]; xlabel="Time, hours", ylabel="geodetic h, km",
     xlabelsize = fontsize, ylabelsize = fontsize, xticklabelsize = fontsize, yticklabelsize = fontsize)
-lines!(ax_h, (sol.t .- sol.t[1])*parameters.TU/3600, norm.(eachcol(Array(sol)[1:3,:])) * parameters.DU .- R_earth_km, color=:blue)
-hlines!(ax_h, [100.0], color=:red, linestyle=:dash)
+lines!(ax_h, (sol.t .- sol.t[1])*parameters.TU/3600, [geodetic_altitude(u[1:3]) for u in sol.u], color=:blue)
+hlines!(ax_h, [h_stop], color=:red, linestyle=:dash)
 
 for i in 2:6
     nrow, ncol = fld1(i, 3), mod1(i, 3)
