@@ -359,8 +359,8 @@ end
             center_id = 399, overwrite = false, verbose = false)
         @test read(out) == bytes
 
-        # failure while writing (invalid even degree): the staged temporary BSP is
-        # closed and removed, the previous output is preserved, the error propagates
+        # invalid even degree is rejected during validation, before any temporary
+        # BSP is opened; the previous output is preserved, the error propagates
         tmp_spk = joinpath(tmpdir, "staging", "stage.bsp")
         e = try
             _spkB_HFEM.write_spkw13_spk!(segs, out; spice_id = _spkB_ID_A, center_id = 399,
@@ -370,6 +370,20 @@ end
             err
         end
         @test e isa ErrorException && occursin("must be odd", e.msg)
+        @test !isfile(tmp_spk)
+        @test read(out) == bytes
+
+        # failure inside SPICE after `spkopn` with zero segments written (unknown
+        # frame): `spkcls` refuses to close an empty SPK, so the handle must be
+        # released via `dafcls` and the staged file removed (EBUSY on Windows otherwise)
+        e = try
+            _spkB_HFEM.write_spkw13_spk!(segs, out; spice_id = _spkB_ID_A, center_id = 399,
+                ref_frame_name = "SPKB_NOT_A_FRAME", tmp_spk = tmp_spk, verbose = false)
+            nothing
+        catch err
+            err
+        end
+        @test e isa SPICE.SpiceError
         @test !isfile(tmp_spk)
         @test read(out) == bytes
 
