@@ -51,7 +51,7 @@ Within the Julia ecosystem, there are a number of mature spacecraft-related pack
 
 `HighFidelityEphemerisModel.jl` formulates spacecraft motion relative to a central celestial body, such as a planet, a moon, or the Sun, with additional, configurable perturbations due to gravitational irregularities of the central body modeled via spherical harmonics, third-body point-mass perturbations by other celestial bodies, solar radiation pressure, and atmospheric drag.
 The package supports propagation of the spacecraft state in terms of its inertial position and velocity vectors, as well as in terms of orbital elements throug Gauss variational equations. 
-Their implementation support rescaling the dynamics via canonical scales for improved numerical stability, selected by a user defined distance unit $\mathrm{DU}$, and an automatically scaled velocity unit $\mathrm{VU} = \sqrt{\mu / \mathrm{DU}}$, where $\mu$ is the central body's gravitational parameter.
+Their implementation support rescaling the dynamics via canonical scales for improved numerical stability, selected by a user defined distance unit $\mathrm{DU}$, and an automatically scaled velocity unit $\mathrm{VU} = \sqrt{\mu / \mathrm{DU}}$, where $\mu$ is the central body's gravitational parameter, such that the time unit is $\mathrm{TU} = \mathrm{DU}/\mathrm{VU}$.
 
 ## Modular implementation
 
