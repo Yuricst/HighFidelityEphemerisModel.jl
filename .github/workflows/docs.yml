@@ -49,7 +49,10 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - name: Install and build documentation
         run: |
-          julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+          # `[sources]` in docs/Project.toml is ignored on Julia < 1.11 (e.g. lts = 1.10),
+          # which would pull the registered release instead of this checkout.
+          julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+          # threads: the examples (docs/src/examples) propagate ensembles with EnsembleThreads
           julia --project=docs --threads=auto docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

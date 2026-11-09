@@ -69,7 +69,7 @@ println("DU = $DU km, TU = $(round(TU, digits=1)) s, VU = $(round(VU, digits=6))
 
 # !!! note
 #
-#     `EnsembleThreads()` evaluates the equations of motion from several threads at once, so the parameters must be thread-safe. `EphemeridesParameters` and `InterpParameters` are, as long as `f_density` is (the default Harris–Priester callback is, see [Perturbations](../tutorials/perturbations.md)). `SpiceParameters` are not, because CSPICE is not thread-safe: with them, use `EnsembleSerial()`.
+#     `EnsembleThreads()` evaluates the equations of motion from several threads at once, so the parameters must be thread-safe. `EphemeridesParameters` are, as long as `f_density` is (the default Harris–Priester callback is, see [Perturbations](../tutorials/perturbations.md)). `SpiceParameters` are not, because CSPICE is not thread-safe: with them, use `EnsembleSerial()`.
 
 # ## Initial state at apolune
 #
@@ -398,4 +398,4 @@ fig
 #
 # - Add navigation errors by also perturbing the position and velocity before the maneuver in `prob_func`.
 # - Replace `output_func` with one that also stores e.g. the state at a later maneuver epoch, to size the next correction maneuver.
-# - With `InterpParameters` instead of `EphemeridesParameters`, the same ensemble runs on spline-interpolated ephemerides; with `SpiceParameters`, use `EnsembleSerial()`.
+# - To use `SpiceParameters` instead of `EphemeridesParameters` (e.g. to compare the two backends), solve the ensemble with `EnsembleSerial()`, since CSPICE is not thread-safe.

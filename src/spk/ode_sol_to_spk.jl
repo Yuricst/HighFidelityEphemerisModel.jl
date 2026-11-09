@@ -59,8 +59,19 @@ Important optional keywords:
 - `write_maneuvers=false`: optionally write a trajectory-jump diagnostic maneuver file.
 - `write_metadata=true`: also write a metadata JSON file.
 - `keep_intermediates=false`: keep or delete the temporary work directory.
-- `coast_windows=nothing`: optional explicit arc windows like `[(1,1),(2,2)]`.
-  If `nothing`, one SPK segment is written per coast arc automatically.
+- `coast_windows=nothing`: optional explicit arc windows like `[(1,1),(2,3)]`.
+  If `nothing`, one SPK segment is written per coast arc automatically. A
+  window `(a, b)` with `a < b` merges arcs `a:b` into one SPK segment, so the
+  merged arcs must be continuous in time and state: windows that cross an
+  impulsive maneuver, a time gap or an overlap are rejected. All windows are
+  checked before any file or directory is created.
+- `validate_continuity=true`: set to `false` to skip the continuity check of
+  merged windows (the window bounds are still checked).
+- `continuity_pos_tol_km=1e-3`, `continuity_vel_tol_kmps=1e-6`: absolute
+  per-component tolerances on the position (km) and velocity (km/s) jump
+  between consecutive merged arcs.
+- `continuity_rtol=0.0`: relative tolerance; a component passes if
+  `abs(Δ) <= atol + continuity_rtol * max(abs(x_left), abs(x_right))`.
 
 Returns a `NamedTuple` with paths/counts for the generated products.
 """
@@ -86,6 +97,10 @@ function ode_sol_to_spk(
     dt_sec::Real = 1800.0,
     segment_gap_sec::Real = 1e-7,
     coast_windows = nothing,
+    validate_continuity::Bool = true,
+    continuity_pos_tol_km::Real = 1e-3,
+    continuity_vel_tol_kmps::Real = 1e-6,
+    continuity_rtol::Real = 0.0,
     keep_intermediates::Bool = false,
     intermediate_parent_dir::Union{Nothing,AbstractString} = nothing,
     overwrite::Bool = true,
@@ -186,217 +201,238 @@ function ode_sol_to_spk(
     # write all segments into one newly-created BSP.
     length(sols) > 0 || error("`sols` is empty; provide at least one coast arc.")
 
-    output_spk_abs = _prepare_spk_final_path(output_spk; overwrite = overwrite)
-
-    workdir = _make_spk_pipeline_workdir(output_spk_abs, intermediate_parent_dir)
-    tmp_spk = joinpath(workdir, basename(output_spk_abs))
-
     windows = coast_windows === nothing ?
         default_coast_windows(sols) :
         collect(coast_windows)
 
-    if verbose
-        println("SPK generation pipeline")
-        @printf("  coast arcs / segments : %d / %d\n", length(sols), length(windows))
-        @printf("  sampling              : dt = %.6g s, gap = %.6g s\n", Float64(dt_sec), Float64(segment_gap_sec))
-        println("  SPK writer            : native SPICE type 13")
-        println("  temporary dir         : ", _display_path(workdir))
-    end
-
-    # Sample states in memory. The native writer does not need setup files or
-    # external command-line tools.
-    state_result = sample_segmented_states_for_spk(
+    # Check every window before touching the filesystem, so a rejected window
+    # leaves no work directory or partial output behind.
+    _validate_coast_windows(
         sols,
         windows,
-        et0,
         parameters;
-        dt_sec = Float64(dt_sec),
-        segment_gap_sec = Float64(segment_gap_sec),
-        verbose = verbose,
-        show_progress = show_progress,
+        validate_continuity = validate_continuity,
+        continuity_pos_tol_km = continuity_pos_tol_km,
+        continuity_vel_tol_kmps = continuity_vel_tol_kmps,
+        continuity_rtol = continuity_rtol,
     )
 
-    segments = state_result.segments
-    nseg = length(segments)
-    nseg > 0 || error("No SPK segments were sampled.")
+    output_spk_abs = _prepare_spk_final_path(output_spk; overwrite = overwrite)
 
-    # Create the combined BSP with native SPICE type-13 segment writes.
-    write_spkw13_spk!(
-        segments,
-        output_spk_abs;
-        spice_id = spice_id,
-        object_name = object_name,
-        center_id = center_id,
-        center_name = center_name,
-        ref_frame_name = ref_frame_name,
-        segment_id = segment_id,
-        segment_id_per_seg = segment_id_per_seg,
-        polynom_degree = polynom_degree,
-        producer_id = producer_id,
-        internal_file_name = internal_file_name,
-        ncomch = ncomch,
-        frame_def_file = frame_def_file,
-        overwrite = overwrite,
-        tmp_spk = tmp_spk,
-        verbose = verbose,
-        show_progress = show_progress,
-    )
+    workdir = _make_spk_pipeline_workdir(output_spk_abs, intermediate_parent_dir)
 
-    isfile(output_spk_abs) || error("SPICE finished, but output SPK was not found: $(output_spk_abs)")
+    # Remove the work directory if anything below fails (unless the user asked
+    # to keep intermediates); the success path cleans up on its own.
+    try
+        tmp_spk = joinpath(workdir, basename(output_spk_abs))
 
-    # Compute maneuver entries once so the text file and metadata JSON agree exactly.
-    maneuver_entries = collect_node_to_node_maneuvers_mps(sols, et0, parameters)
-    maneuver_summary = summarize_maneuver_entries_mps(maneuver_entries)
-
-    # If the user asks for merged maneuver entries, mirror that behavior for
-    # OCP controls unless it was overridden explicitly.
-    effective_merge_ocp = merge_ocp_maneuvers_into_metadata === nothing ?
-        (merge_maneuvers_into_metadata && ocp_control !== nothing) :
-        Bool(merge_ocp_maneuvers_into_metadata)
-
-    ocp_control_entries = nothing
-    ocp_control_summary = nothing
-    if ocp_control !== nothing
-        if ocp_control_times !== nothing
-            ocp_control_entries = collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, parameters)
-            ocp_control_summary = summarize_ocp_control_entries_mps(ocp_control_entries)
-        else
-            if write_ocp_maneuvers || effective_merge_ocp
-                error("`ocp_control_times` must be provided when `write_ocp_maneuvers=true` or OCP maneuver entries are merged into metadata.")
-            end
-            ocp_control_summary = summarize_ocp_control_mps(ocp_control, parameters)
+        if verbose
+            println("SPK generation pipeline")
+            @printf("  coast arcs / segments : %d / %d\n", length(sols), length(windows))
+            @printf("  sampling              : dt = %.6g s, gap = %.6g s\n", Float64(dt_sec), Float64(segment_gap_sec))
+            println("  SPK writer            : native SPICE type 13")
+            println("  temporary dir         : ", _display_path(workdir))
         end
-    elseif write_ocp_maneuvers || effective_merge_ocp
-        error("`ocp_control` must be provided when writing or merging OCP maneuver entries.")
-    end
 
-    # Optional diagnostic from jumps between adjacent coast arcs.
-    trajectory_maneuver_path = nothing
-    if write_maneuvers
-        trajectory_maneuver_path = (maneuver_txt !== nothing && !write_ocp_maneuvers) ?
-            abspath(maneuver_txt) :
-            string(splitext(output_spk_abs)[1], "_trajectory_jump_maneuvers.txt")
-        mkpath(dirname(trajectory_maneuver_path))
-        write_maneuver_entries_mps(trajectory_maneuver_path, maneuver_entries)
-        verbose && !print_summary && println("Wrote trajectory-jump diagnostic maneuver file: ", _display_path(trajectory_maneuver_path))
-    end
-
-    # Primary maneuver product when OCP/executed controls are supplied.
-    ocp_maneuver_path = nothing
-    if write_ocp_maneuvers
-        ocp_control_entries === nothing && error("Internal error: no OCP maneuver entries were created.")
-        ocp_maneuver_path = ocp_maneuver_txt !== nothing ?
-            abspath(ocp_maneuver_txt) :
-            (maneuver_txt !== nothing ? abspath(maneuver_txt) : string(splitext(output_spk_abs)[1], "_maneuvers.txt"))
-        mkpath(dirname(ocp_maneuver_path))
-        write_ocp_control_entries_mps(ocp_maneuver_path, ocp_control_entries)
-        verbose && !print_summary && println("Wrote maneuver file from OCP controls: ", _display_path(ocp_maneuver_path))
-    end
-
-    main_maneuver_path = ocp_maneuver_path !== nothing ? ocp_maneuver_path : trajectory_maneuver_path
-
-    metadata_path = nothing
-    if write_metadata
-        metadata_path = metadata_json === nothing ?
-            string(splitext(output_spk_abs)[1], "_metadata.json") :
-            abspath(metadata_json)
-        mkpath(dirname(metadata_path))
-
-        keyword_force_metadata = _build_force_model_keyword_metadata(
-            dynamics_name = dynamics_name,
-            srp_enabled = srp_enabled,
-            srp_Cr = srp_Cr,
-            srp_Am = srp_Am,
-            srp_P0 = srp_P0,
-            spherical_harmonics_enabled = spherical_harmonics_enabled,
-            spherical_harmonics_body = spherical_harmonics_body,
-            spherical_harmonics_file = spherical_harmonics_file,
-            spherical_harmonics_nmax = spherical_harmonics_nmax === nothing ? nmax : spherical_harmonics_nmax,
-            spherical_harmonics_frame = spherical_harmonics_frame,
+        # Sample states in memory. The native writer does not need setup files or
+        # external command-line tools.
+        state_result = sample_segmented_states_for_spk(
+            sols,
+            windows,
+            et0,
+            parameters;
+            dt_sec = Float64(dt_sec),
+            segment_gap_sec = Float64(segment_gap_sec),
+            verbose = verbose,
+            show_progress = show_progress,
+            validate_continuity = false,  # already checked above
         )
 
-        effective_force_model_metadata = force_model_metadata
-        if !isempty(keyword_force_metadata)
-            effective_force_model_metadata = force_model_metadata === nothing ?
-                infer_force_model_metadata(parameters) :
-                _json_safe(force_model_metadata)
-            _deep_merge_dicts!(effective_force_model_metadata, keyword_force_metadata)
-        end
+        segments = state_result.segments
+        nseg = length(segments)
+        nseg > 0 || error("No SPK segments were sampled.")
 
-        metadata = build_spk_metadata(
-            output_spk = output_spk_abs,
-            maneuver_file = trajectory_maneuver_path,
-            metadata_json = metadata_path,
+        # Create the combined BSP with native SPICE type-13 segment writes.
+        write_spkw13_spk!(
+            segments,
+            output_spk_abs;
             spice_id = spice_id,
             object_name = object_name,
             center_id = center_id,
             center_name = center_name,
             ref_frame_name = ref_frame_name,
-            producer_id = producer_id,
-            output_spk_type = output_spk_type,
+            segment_id = segment_id,
+            segment_id_per_seg = segment_id_per_seg,
             polynom_degree = polynom_degree,
-            dt_sec = Float64(dt_sec),
-            segment_gap_sec = Float64(segment_gap_sec),
-            coast_windows = windows,
-            epoch_ranges = state_result.epoch_ranges,
-            parameters = parameters,
-            et0 = Float64(et0),
-            leapseconds_file = leapseconds_file,
+            producer_id = producer_id,
+            internal_file_name = internal_file_name,
+            ncomch = ncomch,
             frame_def_file = frame_def_file,
-            force_model_metadata = effective_force_model_metadata,
-            extra_metadata = extra_metadata,
-            maneuver_summary = maneuver_summary,
-            ocp_control_summary = ocp_control_summary,
-            ocp_control_file = ocp_maneuver_path,
-            maneuver_entries = merge_maneuvers_into_metadata ? maneuver_entries : nothing,
-            ocp_control_entries = effective_merge_ocp ? ocp_control_entries : nothing,
-            merge_maneuvers_into_metadata = merge_maneuvers_into_metadata,
-            merge_ocp_maneuvers_into_metadata = effective_merge_ocp,
+            overwrite = overwrite,
+            tmp_spk = tmp_spk,
+            verbose = verbose,
+            show_progress = show_progress,
         )
 
-        write_spk_metadata_json(metadata_path, metadata)
-        verbose && !print_summary && println("Wrote metadata JSON: ", _display_path(metadata_path))
-    end
+        isfile(output_spk_abs) || error("SPICE finished, but output SPK was not found: $(output_spk_abs)")
 
-    kept_workdir = keep_intermediates
-    if !keep_intermediates
-        rm(workdir; recursive = true, force = true)
-        verbose && !print_summary && println("Deleted intermediate directory: ", _display_path(workdir))
-    else
-        verbose && !print_summary && println("Kept intermediate directory: ", _display_path(workdir))
-    end
+        # Compute maneuver entries once so the text file and metadata JSON agree exactly.
+        maneuver_entries = collect_node_to_node_maneuvers_mps(sols, et0, parameters)
+        maneuver_summary = summarize_maneuver_entries_mps(maneuver_entries)
 
-    if verbose && print_summary
-        _print_spk_pipeline_summary(
+        # If the user asks for merged maneuver entries, mirror that behavior for
+        # OCP controls unless it was overridden explicitly.
+        effective_merge_ocp = merge_ocp_maneuvers_into_metadata === nothing ?
+            (merge_maneuvers_into_metadata && ocp_control !== nothing) :
+            Bool(merge_ocp_maneuvers_into_metadata)
+
+        ocp_control_entries = nothing
+        ocp_control_summary = nothing
+        if ocp_control !== nothing
+            if ocp_control_times !== nothing
+                ocp_control_entries = collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, parameters)
+                ocp_control_summary = summarize_ocp_control_entries_mps(ocp_control_entries)
+            else
+                if write_ocp_maneuvers || effective_merge_ocp
+                    error("`ocp_control_times` must be provided when `write_ocp_maneuvers=true` or OCP maneuver entries are merged into metadata.")
+                end
+                ocp_control_summary = summarize_ocp_control_mps(ocp_control, parameters)
+            end
+        elseif write_ocp_maneuvers || effective_merge_ocp
+            error("`ocp_control` must be provided when writing or merging OCP maneuver entries.")
+        end
+
+        # Optional diagnostic from jumps between adjacent coast arcs.
+        trajectory_maneuver_path = nothing
+        if write_maneuvers
+            trajectory_maneuver_path = (maneuver_txt !== nothing && !write_ocp_maneuvers) ?
+                abspath(maneuver_txt) :
+                string(splitext(output_spk_abs)[1], "_trajectory_jump_maneuvers.txt")
+            mkpath(dirname(trajectory_maneuver_path))
+            write_maneuver_entries_mps(trajectory_maneuver_path, maneuver_entries)
+            verbose && !print_summary && println("Wrote trajectory-jump diagnostic maneuver file: ", _display_path(trajectory_maneuver_path))
+        end
+
+        # Primary maneuver product when OCP/executed controls are supplied.
+        ocp_maneuver_path = nothing
+        if write_ocp_maneuvers
+            ocp_control_entries === nothing && error("Internal error: no OCP maneuver entries were created.")
+            ocp_maneuver_path = ocp_maneuver_txt !== nothing ?
+                abspath(ocp_maneuver_txt) :
+                (maneuver_txt !== nothing ? abspath(maneuver_txt) : string(splitext(output_spk_abs)[1], "_maneuvers.txt"))
+            mkpath(dirname(ocp_maneuver_path))
+            write_ocp_control_entries_mps(ocp_maneuver_path, ocp_control_entries)
+            verbose && !print_summary && println("Wrote maneuver file from OCP controls: ", _display_path(ocp_maneuver_path))
+        end
+
+        main_maneuver_path = ocp_maneuver_path !== nothing ? ocp_maneuver_path : trajectory_maneuver_path
+
+        metadata_path = nothing
+        if write_metadata
+            metadata_path = metadata_json === nothing ?
+                string(splitext(output_spk_abs)[1], "_metadata.json") :
+                abspath(metadata_json)
+            mkpath(dirname(metadata_path))
+
+            keyword_force_metadata = _build_force_model_keyword_metadata(
+                dynamics_name = dynamics_name,
+                srp_enabled = srp_enabled,
+                srp_Cr = srp_Cr,
+                srp_Am = srp_Am,
+                srp_P0 = srp_P0,
+                spherical_harmonics_enabled = spherical_harmonics_enabled,
+                spherical_harmonics_body = spherical_harmonics_body,
+                spherical_harmonics_file = spherical_harmonics_file,
+                spherical_harmonics_nmax = spherical_harmonics_nmax === nothing ? nmax : spherical_harmonics_nmax,
+                spherical_harmonics_frame = spherical_harmonics_frame,
+            )
+
+            effective_force_model_metadata = force_model_metadata
+            if !isempty(keyword_force_metadata)
+                effective_force_model_metadata = force_model_metadata === nothing ?
+                    infer_force_model_metadata(parameters) :
+                    _json_safe(force_model_metadata)
+                _deep_merge_dicts!(effective_force_model_metadata, keyword_force_metadata)
+            end
+
+            metadata = build_spk_metadata(
+                output_spk = output_spk_abs,
+                maneuver_file = trajectory_maneuver_path,
+                metadata_json = metadata_path,
+                spice_id = spice_id,
+                object_name = object_name,
+                center_id = center_id,
+                center_name = center_name,
+                ref_frame_name = ref_frame_name,
+                producer_id = producer_id,
+                output_spk_type = output_spk_type,
+                polynom_degree = polynom_degree,
+                dt_sec = Float64(dt_sec),
+                segment_gap_sec = Float64(segment_gap_sec),
+                coast_windows = windows,
+                epoch_ranges = state_result.epoch_ranges,
+                parameters = parameters,
+                et0 = Float64(et0),
+                leapseconds_file = leapseconds_file,
+                frame_def_file = frame_def_file,
+                force_model_metadata = effective_force_model_metadata,
+                extra_metadata = extra_metadata,
+                maneuver_summary = maneuver_summary,
+                ocp_control_summary = ocp_control_summary,
+                ocp_control_file = ocp_maneuver_path,
+                maneuver_entries = merge_maneuvers_into_metadata ? maneuver_entries : nothing,
+                ocp_control_entries = effective_merge_ocp ? ocp_control_entries : nothing,
+                merge_maneuvers_into_metadata = merge_maneuvers_into_metadata,
+                merge_ocp_maneuvers_into_metadata = effective_merge_ocp,
+            )
+
+            write_spk_metadata_json(metadata_path, metadata)
+            verbose && !print_summary && println("Wrote metadata JSON: ", _display_path(metadata_path))
+        end
+
+        kept_workdir = keep_intermediates
+        if !keep_intermediates
+            rm(workdir; recursive = true, force = true)
+            verbose && !print_summary && println("Deleted intermediate directory: ", _display_path(workdir))
+        else
+            verbose && !print_summary && println("Kept intermediate directory: ", _display_path(workdir))
+        end
+
+        if verbose && print_summary
+            _print_spk_pipeline_summary(
+                output_spk = output_spk_abs,
+                maneuver_txt = main_maneuver_path,
+                ocp_maneuver_txt = ocp_maneuver_path,
+                metadata_json = metadata_path,
+                segment_count = nseg,
+                intermediate_dir = kept_workdir ? workdir : nothing,
+                maneuver_summary = maneuver_summary,
+                ocp_control_summary = ocp_control_summary,
+            )
+        end
+
+        return (
             output_spk = output_spk_abs,
             maneuver_txt = main_maneuver_path,
             ocp_maneuver_txt = ocp_maneuver_path,
+            trajectory_maneuver_txt = trajectory_maneuver_path,
             metadata_json = metadata_path,
-            segment_count = nseg,
-            intermediate_dir = kept_workdir ? workdir : nothing,
             maneuver_summary = maneuver_summary,
             ocp_control_summary = ocp_control_summary,
+            segment_count = nseg,
+            coast_windows = windows,
+            intermediate_dir = kept_workdir ? workdir : nothing,
+            states_dir = nothing,
+            setup_dir = nothing,
+            state_files = String[],
+            setup_files = String[],
+            epoch_ranges = state_result.epoch_ranges,
+            point_counts = state_result.point_counts,
         )
+    catch
+        keep_intermediates || rm(workdir; recursive = true, force = true)
+        rethrow()
     end
-
-    return (
-        output_spk = output_spk_abs,
-        maneuver_txt = main_maneuver_path,
-        ocp_maneuver_txt = ocp_maneuver_path,
-        trajectory_maneuver_txt = trajectory_maneuver_path,
-        metadata_json = metadata_path,
-        maneuver_summary = maneuver_summary,
-        ocp_control_summary = ocp_control_summary,
-        segment_count = nseg,
-        coast_windows = windows,
-        intermediate_dir = kept_workdir ? workdir : nothing,
-        states_dir = nothing,
-        setup_dir = nothing,
-        state_files = String[],
-        setup_files = String[],
-        epoch_ranges = state_result.epoch_ranges,
-        point_counts = state_result.point_counts,
-    )
 end
 
 

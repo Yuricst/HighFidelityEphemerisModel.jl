@@ -1,22 +1,6 @@
 """Ephemerides.jl/FrameTransformations-based N-body equations of motion"""
 
 
-function _get_pos_3body_ephemerides(params::EphemeridesParameters, ID::String, t)
-    et = params.et0 + t * params.TU
-    backend = ephemerides_backend(params)
-
-    return collect(
-        get_pos_ephemerides(
-            backend.frame_system,
-            ID,
-            params.naif_ids[1],
-            et;
-            axes = params.naif_frame,
-        )
-    ) / params.DU
-end
-
-
 """
     eom_Nbody_Ephemerides!(dx, x, params, t)
 

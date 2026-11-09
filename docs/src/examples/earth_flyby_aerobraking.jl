@@ -82,7 +82,7 @@ TU, VU = params_drag.TU, params_drag.VU;
 
 # !!! note
 #
-#     `EnsembleThreads()` evaluates the equations of motion from several threads at once, so the parameters must be thread-safe. `EphemeridesParameters` and `InterpParameters` are, as long as `f_density` is (the default Harris–Priester callback is, see [Perturbations](../tutorials/perturbations.md)). `SpiceParameters` are not, because CSPICE is not thread-safe: with them, use `EnsembleSerial()`.
+#     `EnsembleThreads()` evaluates the equations of motion from several threads at once, so the parameters must be thread-safe. `EphemeridesParameters` are, as long as `f_density` is (the default Harris–Priester callback is, see [Perturbations](../tutorials/perturbations.md)). `SpiceParameters` are not, because CSPICE is not thread-safe: with them, use `EnsembleSerial()`.
 
 # ## Flyby geometry
 #

@@ -70,6 +70,27 @@ function _validate_spkw13_segment(epochs, states; degree::Integer, first::Real, 
 end
 
 """
+    _close_spk_handle_after_error(handle; verbose=true)
+
+Release an SPK handle on an error path. `spkcls` refuses to close a file with no
+segments (`SPICE(NOSEGMENTSFOUND)`), so fall back to `dafcls`, which closes the
+underlying DAF unconditionally. Leaving the handle open would keep the file
+locked on Windows and leak a SPICE file-table slot.
+"""
+function _close_spk_handle_after_error(handle; verbose::Bool = true)
+    try
+        SPICE.spkcls(handle)
+    catch close_err
+        try
+            SPICE.dafcls(handle)
+        catch daf_err
+            verbose && println("Warning: failed to close SPK after an error: ", close_err, "; ", daf_err)
+        end
+    end
+    return nothing
+end
+
+"""
     _prepare_spk_final_path(output_spk; overwrite=true)
 
 Normalize and validate the final `.bsp` path for a full new-kernel write.
@@ -180,27 +201,33 @@ function write_spkw13_spk!(
     closed = false
     progress_enabled = verbose && show_progress
 
+    # Convert and validate every segment before the temporary BSP is opened.
+    # `spkcls` refuses to close an SPK that contains no segments, so failing
+    # validation after `spkopn` would otherwise leave the file handle open
+    # (and the file locked on Windows).
+    prepared = map(enumerate(segments)) do (idx, segment)
+        epochs = Float64.(segment.epochs)
+        states = [Float64.(state) for state in segment.states]
+        segid = _spkw13_segment_id(segment_id, idx; segment_id_per_seg = segment_id_per_seg)
+        first = hasproperty(segment, :first) ? Float64(segment.first) : epochs[1]
+        last = hasproperty(segment, :last) ? Float64(segment.last) : epochs[end]
+        _validate_spkw13_segment(
+            epochs,
+            states;
+            degree = polynom_degree,
+            first = first,
+            last = last,
+            segid = segid,
+        )
+        (; epochs, states, segid, first, last)
+    end
+
     try
         # `spkopn` creates a new SPK file and returns the DAF handle used by
         # `spkw13`. Always close the handle with `spkcls` before moving the file.
         handle = SPICE.spkopn(tmp_spk_abs, ifname, Int(ncomch))
 
-        for (idx, segment) in enumerate(segments)
-            epochs = Float64.(segment.epochs)
-            states = [Float64.(state) for state in segment.states]
-            segid = _spkw13_segment_id(segment_id, idx; segment_id_per_seg = segment_id_per_seg)
-            first = hasproperty(segment, :first) ? Float64(segment.first) : epochs[1]
-            last = hasproperty(segment, :last) ? Float64(segment.last) : epochs[end]
-
-            _validate_spkw13_segment(
-                epochs,
-                states;
-                degree = polynom_degree,
-                first = first,
-                last = last,
-                segid = segid,
-            )
-
+        for (idx, (; epochs, states, segid, first, last)) in enumerate(prepared)
             # Type 13 stores position, velocity, and epoch samples. States must
             # be dimensional `[x,y,z,vx,vy,vz]` in km and km/s.
             SPICE.spkw13(
@@ -216,7 +243,7 @@ function write_spkw13_spk!(
                 epochs,
             )
 
-            _print_progress("writing SPK segments", idx, length(segments); enabled = progress_enabled)
+            _print_progress("writing SPK segments", idx, length(prepared); enabled = progress_enabled)
         end
 
         # Closing flushes the DAF/SPK file to disk and balances `spkopn`.
@@ -225,13 +252,14 @@ function write_spkw13_spk!(
         _safe_install_spk!(tmp_spk_abs, output_spk_abs; overwrite = overwrite)
     catch err
         if handle !== nothing && !closed
-            try
-                SPICE.spkcls(handle)
-            catch close_err
-                verbose && println("Warning: failed to close temporary SPK after an error: ", close_err)
-            end
+            _close_spk_handle_after_error(handle; verbose = verbose)
         end
-        isfile(tmp_spk_abs) && rm(tmp_spk_abs; force = true)
+        # Never let a cleanup failure mask the original error.
+        try
+            isfile(tmp_spk_abs) && rm(tmp_spk_abs; force = true)
+        catch rm_err
+            verbose && println("Warning: failed to remove temporary SPK after an error: ", rm_err)
+        end
         rethrow()
     end
 
@@ -321,13 +349,7 @@ function append_spkw13_segment_to_spk!(
         SPICE.spkcls(handle)
         closed = true
     catch err
-        if !closed
-            try
-                SPICE.spkcls(handle)
-            catch close_err
-                println("Warning: failed to close SPK after an error: ", close_err)
-            end
-        end
+        closed || _close_spk_handle_after_error(handle; verbose = true)
         rethrow()
     end
 

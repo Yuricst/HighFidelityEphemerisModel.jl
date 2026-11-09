@@ -22,16 +22,16 @@ What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
 - Cartesian and Gauss variational equation propagation using modified equinoctial, classical Keplerian, and ordinary equinoctial elements
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
-- three ephemeris backends: direct SPICE calls, the Julia-native `Ephemerides.jl` (thread-safe, compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`), and legacy ephemeris interpolation
+- two ephemeris backends: direct SPICE calls, and SPICE-free ephemerides via [`Ephemerides.jl`](https://github.com/JuliaSpaceMissionDesign/Ephemerides.jl) (`EphemeridesParameters`), which are thread-safe and compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
 
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) implemented (at least for now)
 
-We strive for minimal dependencies (listed in `Project.toml`), consisting of: `AstrodynamicsCore`, `Dierckx`, `Ephemerides`, `ForwardDiff`, `FrameTransformations`, `Interpolations`, `LinearAlgebra`, `OrdinaryDiffEq`, `Printf`, `SPICE`.
+We strive for minimal dependencies (listed in `Project.toml`), consisting of: `AstrodynamicsCore`, `Ephemerides`, `ForwardDiff`, `FrameTransformations`, `LinearAlgebra`, `OrdinaryDiffEq`, `Printf`, `SPICE`.
 
 Cartesian propagation remains the general formulation. The GVE interfaces reuse
 the same inertial HFEM force models and are available for N-body and N-body plus
-spherical-harmonic propagation with SPICE, Interp, and Ephemerides parameter
+spherical-harmonic propagation with SPICE and Ephemerides parameter
 backends. See the [Gauss variational equations tutorial](examples/gve.ipynb)
 for state conventions, supported domains, examples, and formulation-selection
 guidance.
@@ -95,7 +95,11 @@ filepath_spherical_harmonics = joinpath(
 )
 
 et0 = str2et("2026-01-05T00:00:00")    # reference epoch
-parameters = SpiceParameters(          # or EphemeridesParameters / InterpParameters
+
+# SpiceParameters queries SPICE at runtime; for a SPICE-free, thread-safe and
+# ForwardDiff-compatible backend use EphemeridesParameters instead, adding e.g.
+# `ephemerides_files = [joinpath(spice_dir, "spk", "de440.bsp"), joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc")]`
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -114,7 +118,7 @@ sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 
 # propagate both state & STM
 x0_stm = [x0; reshape(I(6),36)]
-prob = ODEProblem(eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or eom_stm_NbodySH_Ephemerides_fd! / eom_stm_NbodySH_Interp_fd!
+prob = ODEProblem(eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or eom_stm_NbodySH_Ephemerides_fd! with EphemeridesParameters
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 STM = reshape(sol.u[end][7:42], 6, 6)       # final 6-by-6 STM
 ```
