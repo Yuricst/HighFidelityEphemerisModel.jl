@@ -7,7 +7,7 @@ There are a number of equations of motion implemented in `HighFidelityEphemerisM
 
 !!! note
 
-    The STM is flattened row-wise, so to extract the state & STM from the `ODESolution`, make sure to reshape then tranapose; for example,
+    The STM is flattened column by column (Julia's memory order), so `reshape(x[7:42], 6, 6)` directly gives the STM, without transposing; for example,
 
     ```julia
     x_stm_tf = sol.u[end]                       # concatenated state & STM (flattened)
@@ -45,8 +45,9 @@ gravity when multiple bodies have meaningful influence, and spherical
 harmonics when point-mass gravity is inadequate near a nonspherical body.
 
 For every GVE force model, HFEM reconstructs Cartesian position and velocity,
-evaluates the corresponding existing inertial Cartesian EOM, removes the
-central two-body acceleration, projects the total remaining perturbation once
+evaluates the perturbing accelerations of the corresponding inertial Cartesian
+EOM (all terms except the central two-body acceleration, which is never added,
+so that nothing has to be subtracted), projects the total perturbation once
 into RTN, and applies the selected variational equations. See
 [Gauss variational equations](@ref) for examples and detailed limitations.
 Third-body accelerations are not evaluated directly in RTN.
@@ -217,7 +218,7 @@ The cannonball model SRP acceleration is given by
 P_{\odot} \left(\frac{\mathrm{AU}}{\| \boldsymbol{r}_{\odot} \|_2}\right)^2 C_r \frac{A}{m} \dfrac{\boldsymbol{r}_{\odot}}{\| \boldsymbol{r}_{\odot} \|_2}
 ```
 
-where $\mathrm{AU}$ is the astronomical unit, $P_{\odot}$ is the ratiation pressure at $1\,\mathrm{AU}$, $C_r$ is the radiation pressure coefficient, $A/m$ is the area-to-mass ratio, and $\boldsymbol{r}_{\odot}$ is the Sun-to-spacecraft position vector.
+where $\mathrm{AU}$ is the astronomical unit, $P_{\odot}$ is the radiation pressure at $1\,\mathrm{AU}$, $C_r$ is the radiation pressure coefficient, $A/m$ is the area-to-mass ratio, and $\boldsymbol{r}_{\odot}$ is the Sun-to-spacecraft position vector.
 In `HighFidelityEphemerisModel`, the above is computed in canonical scales as
 
 ```math
@@ -231,7 +232,7 @@ k_{\mathrm{SRP}} =
 P_{\odot} \left(\frac{\mathrm{AU}}{\mathrm{DU}}\right)^2 C_r \frac{A/m}{10^3}  \dfrac{\mathrm{TU}^2}{\mathrm{DU}}
 ```
 
-is pre-computed and stored.
+is pre-computed and stored. No eclipse/shadow model is applied: the spacecraft is always assumed to be in sunlight.
 
 
 ### Atmospheric drag
@@ -264,7 +265,7 @@ in km in the body-fixed frame `frame_PCPF`. Two Earth models are provided:
   ```
 
   where $\psi$ is the angle between the position vector and the bulge apex, located at the
-  Sun's declination and lagging the Sun by 30° in right ascension (≈ 14h local time).
+  Sun's declination and 30° east of the Sun in right ascension (≈ 14h local time).
   M&G recommend $n = 2$ for low-inclination and $n = 6$ (the default) for polar orbits.
   By default the Sun comes from a SPICE-free low-precision analytic model (≈ 0.01° from
   ITRF93), so the callback is thread-safe; a user `sun_position(et)` function may be
@@ -280,7 +281,7 @@ in km in the body-fixed frame `frame_PCPF`. Two Earth models are provided:
     propagation with an altitude event or use another model there
     (`jacchia_roberts_f_density` throws an error at or below 100 km).
   - **Only C⁰ in altitude.** $\partial\rho/\partial h$ jumps at each table height
-    (every 10 km below 300 km, 20-40 km above). ForwardDiff STMs are still the model's
+    (every 10 km between 120 and 300 km, after a 20 km first step from 100 km; 20-40 km above). ForwardDiff STMs are still the model's
     derivative almost everywhere, but on orbits that cross table heights they degrade
     against finite-difference STMs (≈4e-4 discrepancy observed over a few hours, vs
     ≲1e-5 within one interval), and gradient-based optimization may see a non-smooth
@@ -323,7 +324,11 @@ The table below summarizes the models. Note:
 
 !!! note
 
-    In order to use Julia's dual numbers, use `EphemeridesParameters` or `InterpParameters`, which avoid direct SPICE calls inside the EOM.
+    All backends accept ForwardDiff dual numbers in the **state** (this is how the `_fd`
+    STM equations of motion compute the Jacobian, also with `SpiceParameters`). Dual numbers
+    in **time** (e.g. derivatives with respect to the epoch) are only supported by
+    `EphemeridesParameters`: `SpiceParameters` passes the epoch to SPICE, and
+    `InterpParameters` evaluates its splines at `Float64` epochs only.
 
 !!! note
 
@@ -337,8 +342,9 @@ The table below summarizes the models. Note:
     The built-in Ephemerides.jl frame system supports the body-fixed frames `"MOON_PA"`
     (lunar binary PCK, e.g. `moon_pa_de440_200625.bpc`), `"ITRF93"` (binary Earth PCK,
     e.g. `earth_latest_high_prec.bpc`) and `"IAU_EARTH"` (IAU 2009 rotation model, no
-    kernel needed). Other `frame_PCPF` values raise an error; a custom
-    `FrameTransformations.FrameSystem` can be passed as `ephemerides_frame_system`.
+    kernel needed). Unsupported body-fixed frames (e.g. `"IAU_MOON"`) raise an error at
+    construction; a custom `FrameTransformations.FrameSystem` can be passed as
+    `ephemerides_frame_system`, in which case `frame_PCPF` is not checked.
 
 !!! warning
 

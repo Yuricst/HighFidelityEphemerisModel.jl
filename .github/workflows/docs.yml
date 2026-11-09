@@ -30,13 +30,30 @@ jobs:
         with:
           version: "lts"
       - uses: julia-actions/cache@v2
+      # SPICE kernels used by the examples (docs/src/examples), which are run during the build
+      - name: Cache SPICE kernels
+        id: cache-spice
+        uses: actions/cache@v4
+        with:
+          path: spice
+          key: spice-kernels-docs-v1
+      - name: Download SPICE kernels
+        if: steps.cache-spice.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p spice/lsk spice/spk spice/pck
+          curl -fL -o spice/lsk/naif0012.tls "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls"
+          curl -fL -o spice/spk/de440.bsp "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440.bsp"
+          curl -fL -o spice/pck/gm_de440.tpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/gm_de440.tpc"
+          curl -fL -o spice/pck/moon_pa_de440_200625.bpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/moon_pa_de440_200625.bpc"
+          curl -fL -o spice/pck/earth_latest_high_prec.bpc "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc"
       - uses: julia-actions/julia-buildpkg@v1
       - name: Install and build documentation
         run: |
           julia --project=docs -e 'using Pkg; Pkg.instantiate()'
-          julia --project=docs docs/make.jl
+          julia --project=docs --threads=auto docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPICE: ${{ github.workspace }}/spice
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/build
