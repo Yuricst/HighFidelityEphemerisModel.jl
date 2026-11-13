@@ -1,158 +1,119 @@
 """Metadata JSON helpers for generated SPK files"""
 
 
+const _SPK_METADATA_SCHEMA = "HighFidelityEphemerisModel.SPKMetadata.v2"
+
+
 """
     build_spk_metadata(; kwargs...) -> Dict
 
-Build metadata for the generated SPK, including force-model information,
-NAIF frame, coverage windows, time/scaling units, and maneuver-file metadata.
+Build the metadata dictionary of a generated SPK: product paths, SPK identifiers
+and frame, sampling, scaling units, per-segment coverage, force model and
+maneuver summaries.
+
+`windows` is a vector of NamedTuples with `start_et`, `end_et` and optionally
+`point_count`, `segment_id` and `coast_window`, one per SPK segment.
 """
 function build_spk_metadata(;
     output_spk::AbstractString,
-    maneuver_file = nothing,
     metadata_json = nothing,
     spice_id = nothing,
-    object_name = nothing,
     center_id = nothing,
-    center_name = nothing,
-    ref_frame_name::AbstractString = "J2000",
-    producer_id::AbstractString = "HighFidelityEphemerisModel.jl",
-    output_spk_type::Integer = 13,
-    polynom_degree::Integer = 7,
-    dt_sec::Real = 1800.0,
-    segment_gap_sec::Real = 0.0,
-    coast_windows = nothing,
-    epoch_ranges = Tuple{Float64,Float64}[],
-    parameters = nothing,
-    et0 = nothing,
-    leapseconds_file = nothing,
+    ref_frame_name = nothing,
+    polynom_degree = nothing,
     frame_def_file = nothing,
+    dt_sec = nothing,
+    segment_gap_sec = nothing,
+    windows = NamedTuple[],
+    et0 = nothing,
+    parameters = nothing,
     force_model_metadata = nothing,
     extra_metadata = nothing,
+    trajectory_maneuver_file = nothing,
     maneuver_summary = nothing,
-    ocp_control_summary = nothing,
-    ocp_control_file = nothing,
     maneuver_entries = nothing,
+    ocp_control_file = nothing,
+    ocp_control_summary = nothing,
     ocp_control_entries = nothing,
     merge_maneuvers_into_metadata::Bool = false,
-    merge_ocp_maneuvers_into_metadata::Bool = false,
 )
-    # Store coverage per SPK segment so downstream validation/visualization
-    # can reproduce the exact windows written to the BSP.
-    windows = Any[]
-    for (idx, epoch_range) in enumerate(epoch_ranges)
-        entry = Dict{String,Any}(
-            "segment_index" => idx,
-            "start_et" => epoch_range[1],
-            "end_et" => epoch_range[2],
-        )
-        if coast_windows !== nothing && idx <= length(coast_windows)
-            cw = coast_windows[idx]
-            entry["coast_window"] = [cw[1], cw[2]]
-        end
-        push!(windows, entry)
-    end
+    _path(p) = p === nothing ? nothing : abspath(String(p))
 
-    coverage_start = isempty(epoch_ranges) ? nothing : minimum(first.(epoch_ranges))
-    coverage_end = isempty(epoch_ranges) ? nothing : maximum(last.(epoch_ranges))
+    coverage_windows = Any[]
+    for (idx, w) in enumerate(windows)
+        entry = _json_safe(w)
+        entry["segment_index"] = idx
+        push!(coverage_windows, entry)
+    end
 
     time_base = Dict{String,Any}()
-    et0 !== nothing && (time_base["et0"] = et0)
+    et0 !== nothing && (time_base["et0"] = Float64(et0))
     if parameters !== nothing
-        _add_if_found!(time_base, "TU_seconds", parameters, (:TU, :tu, :time_unit))
-        _add_if_found!(time_base, "DU_km", parameters, (:DU, :du, :distance_unit))
-        _add_if_found!(time_base, "VU_kmps", parameters, (:VU, :vu, :velocity_unit))
-    end
-
-    force_model = force_model_metadata === nothing ?
-        infer_force_model_metadata(parameters) :
-        _json_safe(force_model_metadata)
-
-    # Trajectory-jump maneuvers are diagnostic values inferred from adjacent
-    # ODE arcs. They are not treated as the primary station-keeping cost product.
-    trajectory_jump_metadata = Dict{String,Any}(
-        "file" => maneuver_file === nothing ? nothing : abspath(String(maneuver_file)),
-        "units" => "m/s",
-        "format" => "ETSECONDS,DVX_mps,DVY_mps,DVZ_mps",
-        "type" => "trajectory_jump_diagnostic",
-        "is_primary" => false,
-        "cost_convention" => "sum(norm.(dv_i))",
-        "merged_into_metadata" => merge_maneuvers_into_metadata,
-    )
-
-    if maneuver_summary !== nothing
-        _deep_merge_dicts!(trajectory_jump_metadata, _json_safe(maneuver_summary))
-    end
-
-    if merge_maneuvers_into_metadata
-        trajectory_jump_metadata["entries"] = maneuver_entries === nothing ? Any[] : _json_safe(maneuver_entries)
-    end
-
-    if ocp_control_summary !== nothing
-        # When OCP/executed controls are supplied, make that the primary
-        # maneuver summary. The trajectory-jump diagnostic stays nested below.
-        maneuver_metadata = _json_safe(ocp_control_summary)
-        maneuver_metadata["file"] = ocp_control_file === nothing ? nothing : abspath(String(ocp_control_file))
-        maneuver_metadata["units"] = "m/s"
-        maneuver_metadata["type"] = "ocp_control"
-        maneuver_metadata["is_primary"] = true
-        maneuver_metadata["primary_cost_key"] = haskey(maneuver_metadata, "total_control_scalar_mps") ?
-            "total_control_scalar_mps" : "total_control_vector_norm_mps"
-        maneuver_metadata["cost_convention"] = haskey(maneuver_metadata, "cost_convention_scalar") ?
-            maneuver_metadata["cost_convention_scalar"] : get(maneuver_metadata, "cost_convention_vector_norm", nothing)
-        maneuver_metadata["merged_into_metadata"] = merge_ocp_maneuvers_into_metadata
-        maneuver_metadata["trajectory_jumps"] = trajectory_jump_metadata
-
-        if merge_ocp_maneuvers_into_metadata
-            maneuver_metadata["entries"] = ocp_control_entries === nothing ? Any[] : _json_safe(ocp_control_entries)
+        for (key, name) in (("TU_seconds", :TU), ("DU_km", :DU), ("VU_kmps", :VU))
+            value = _prop(parameters, name)
+            value !== nothing && (time_base[key] = _json_safe(value))
         end
-    else
-        maneuver_metadata = trajectory_jump_metadata
-        maneuver_metadata["is_primary"] = true
     end
 
-    # The top-level product path should point to the primary maneuver file.
-    primary_maneuver_file = ocp_control_file !== nothing ? ocp_control_file : maneuver_file
+    force_model = infer_force_model_metadata(parameters)
+    force_model_metadata !== nothing && _deep_merge_dicts!(force_model, _json_safe(force_model_metadata))
+
+    maneuvers = Dict{String,Any}()
+    if ocp_control_summary !== nothing
+        # Commanded/executed controls (e.g. OCP `solution.u`): the primary maneuver product.
+        ocp = _json_safe(ocp_control_summary)
+        ocp["file"] = _path(ocp_control_file)
+        ocp["primary_cost_key"] = haskey(ocp, "total_control_scalar_mps") ?
+            "total_control_scalar_mps" : "total_control_vector_norm_mps"
+        merge_maneuvers_into_metadata && (ocp["entries"] = _json_safe(something(ocp_control_entries, Any[])))
+        maneuvers["ocp_control"] = ocp
+    end
+    if maneuver_summary !== nothing
+        # Velocity jumps between adjacent coast arcs: a diagnostic reconstructed
+        # from the state history, not necessarily the commanded control.
+        jumps = _json_safe(maneuver_summary)
+        jumps["file"] = _path(trajectory_maneuver_file)
+        jumps["units"] = "m/s"
+        jumps["format"] = "ETSECONDS,DVX_mps,DVY_mps,DVZ_mps"
+        jumps["cost_convention"] = "sum(norm.(dv_i))"
+        merge_maneuvers_into_metadata && (jumps["entries"] = _json_safe(something(maneuver_entries, Any[])))
+        maneuvers["trajectory_jumps"] = jumps
+    end
+
     meta = Dict{String,Any}(
-        "schema" => "HighFidelityEphemerisModel.SPKMetadata.v1",
+        "schema" => _SPK_METADATA_SCHEMA,
         "generated_unix_time_sec" => time(),
         "products" => Dict{String,Any}(
-            "spk_file" => abspath(output_spk),
-            "maneuver_file" => primary_maneuver_file === nothing ? nothing : abspath(String(primary_maneuver_file)),
-            "ocp_maneuver_file" => ocp_control_file === nothing ? nothing : abspath(String(ocp_control_file)),
-            "trajectory_jump_maneuver_file" => maneuver_file === nothing ? nothing : abspath(String(maneuver_file)),
-            "metadata_json" => metadata_json === nothing ? nothing : abspath(String(metadata_json)),
+            "spk_file" => _path(output_spk),
+            "maneuver_file" => _path(ocp_control_file),
+            "trajectory_jump_maneuver_file" => _path(trajectory_maneuver_file),
+            "metadata_json" => _path(metadata_json),
         ),
         "spk" => Dict{String,Any}(
             "object_id" => spice_id,
-            "object_name" => object_name,
+            "object_name" => spice_id === nothing ? nothing : _body_name(spice_id),
             "center_id" => center_id,
-            "center_name" => center_name,
+            "center_name" => center_id === nothing ? nothing : _body_name(center_id),
             "ref_frame_name" => ref_frame_name,
-            "producer_id" => producer_id,
-            "output_spk_type" => output_spk_type,
+            "spk_type" => 13,
             "polynom_degree" => polynom_degree,
-            "leapseconds_file" => leapseconds_file,
-            "frame_def_file" => frame_def_file,
+            "frame_def_file" => _path(frame_def_file),
         ),
         "sampling" => Dict{String,Any}(
-            "dt_sec" => Float64(dt_sec),
-            "segment_gap_sec" => Float64(segment_gap_sec),
-            "segment_count" => length(epoch_ranges),
+            "dt_sec" => dt_sec === nothing ? nothing : Float64(dt_sec),
+            "segment_gap_sec" => segment_gap_sec === nothing ? nothing : Float64(segment_gap_sec),
+            "segment_count" => length(windows),
         ),
         "time_base" => time_base,
         "coverage" => Dict{String,Any}(
-            "start_et" => coverage_start,
-            "end_et" => coverage_end,
-            "windows" => windows,
+            "start_et" => isempty(windows) ? nothing : minimum(w.start_et for w in windows),
+            "end_et" => isempty(windows) ? nothing : maximum(w.end_et for w in windows),
+            "windows" => coverage_windows,
         ),
         "force_model" => force_model,
-        "maneuvers" => maneuver_metadata,
+        "maneuvers" => maneuvers,
     )
-
-    if extra_metadata !== nothing
-        meta["extra"] = _json_safe(extra_metadata)
-    end
+    extra_metadata !== nothing && (meta["extra"] = _json_safe(extra_metadata))
 
     return meta
 end
@@ -163,8 +124,6 @@ end
 Write metadata as JSON without adding a package dependency.
 """
 function write_spk_metadata_json(path::AbstractString, metadata)
-    # Use the local JSON writer so tuple/named-tuple values from Julia objects
-    # are serialized consistently without adding a new dependency here.
     open(path, "w") do io
         _write_json_value(io, _json_safe(metadata), 0)
         println(io)
@@ -173,91 +132,70 @@ function write_spk_metadata_json(path::AbstractString, metadata)
 end
 
 """
-    infer_force_model_metadata(parameters)
+    infer_force_model_metadata(parameters) -> Dict
 
-Best-effort metadata extraction from the model/scaling object. For production
-runs, pass `force_model_metadata=...` when calling `ode_sol_to_spk` if the
-parameter object does not expose clear field names.
+Force-model metadata read from the dynamics parameters (`SpiceParameters`,
+`EphemeridesParameters`, or any object with the same property names): bodies and
+GMs, integration frame, spherical harmonics (central body, degree, body-fixed
+frame), SRP and drag. Quantities that the parameters do not store (e.g. the EOM
+name, or `Cr`, `A/m` and `P0`, which are folded into `k_srp_cannonball`) can be
+added through the `force_model_metadata` keyword of the SPK writers.
 """
 function infer_force_model_metadata(parameters)
     meta = Dict{String,Any}()
-
     parameters === nothing && return meta
 
-    ids = _property_first(parameters, (:naif_ids, :naif_IDs, :body_ids, :bodies, :ids))
-    mus = _property_first(parameters, (:GMs, :gms, :μs, :mus, :mu, :μ))
+    if parameters isa HighFidelityEphemerisModelParameters
+        meta["parameters_type"] = string(nameof(typeof(parameters)))
+    end
+
+    ids = _prop(parameters, :naif_ids)
     ids !== nothing && (meta["naif_ids"] = _json_safe(ids))
-    mus !== nothing && (meta["mu_values"] = _json_safe(mus))
+    gms = _prop(parameters, :GMs)
+    gms !== nothing && (meta["GMs"] = _json_safe(gms))
+    frame = _prop(parameters, :naif_frame)
+    frame !== nothing && (meta["frame"] = _json_safe(frame))
 
-    srp = Dict{String,Any}()
-    _add_if_found!(srp, "enabled", parameters, (:include_srp, :use_srp, :srp_enabled, :SRP_ENABLED, :srp_on))
-    _add_if_found!(srp, "Cr", parameters, (:srp_Cr, :SRP_Cr, :Cr))
-    _add_if_found!(srp, "A_over_m", parameters, (:srp_Am, :SRP_Am, :A_over_m, :Am))
-    _add_if_found!(srp, "P0", parameters, (:srp_P0, :SRP_P0, :P0))
-    _add_if_found!(srp, "k_cannonball_canonical", parameters, (:k_srp_cannonball,))
-    !isempty(srp) && (meta["SRP"] = srp)
-
-    drag = Dict{String,Any}()
-    _add_if_found!(drag, "enabled", parameters, (:include_drag, :use_drag, :drag_enabled))
-    _add_if_found!(drag, "k_drag_canonical", parameters, (:k_drag,))
-    _add_if_found!(drag, "omega_atm_radps", parameters, (:omega_atm,))
-    !isempty(drag) && (meta["drag"] = drag)
-
-    sh = Dict{String,Any}()
-    _add_if_found!(sh, "enabled", parameters, (:use_spherical_harmonics, :spherical_harmonics_enabled, :sh_enabled))
-    sh_data = _property_first(parameters, (:spherical_harmonics_data,))
-    if sh_data isa AbstractDict
-        sh["enabled"] = true
-        haskey(sh_data, "nmax") && (sh["degree"] = _json_safe(sh_data["nmax"]))
+    if hasproperty(parameters, :spherical_harmonics_data)
+        data = parameters.spherical_harmonics_data
+        sh = Dict{String,Any}("enabled" => data !== nothing)
+        if data !== nothing
+            # The harmonics are those of the central body, `naif_ids[1]`.
+            ids !== nothing && !isempty(ids) && (sh["body"] = string(first(ids)))
+            if data isa AbstractDict
+                for (key, name) in (("nmax", "degree"), ("GM", "GM"), ("REFERENCE RADIUS", "reference_radius"))
+                    haskey(data, key) && (sh[name] = _json_safe(data[key]))
+                end
+            end
+            frame_pcpf = _prop(parameters, :frame_PCPF)
+            frame_pcpf !== nothing && (sh["body_fixed_frame"] = _json_safe(frame_pcpf))
+        end
+        meta["spherical_harmonics"] = sh
     end
-    _add_if_found!(sh, "degree", parameters, (:nmax, :Nmax, :gravity_degree, :spherical_harmonics_degree))
-    _add_if_found!(sh, "file", parameters, (:spherical_harmonics_file, :sh_file, :gravity_file))
-    # Only label the body-fixed frame as the gravity frame when harmonics are actually on
-    if get(sh, "enabled", false) == true
-        _add_if_found!(sh, "body_fixed_frame", parameters, (:frame_PCPF, :pcpf_frame, :body_fixed_frame))
+
+    # Coefficients are only reported for enabled perturbations: the parameter
+    # constructors compute them even when the perturbation is off.
+    include_srp = _prop(parameters, :include_srp)
+    if include_srp !== nothing
+        srp = Dict{String,Any}("enabled" => Bool(include_srp))
+        if include_srp == true
+            k = _prop(parameters, :k_srp_cannonball)
+            k !== nothing && (srp["k_cannonball_canonical"] = _json_safe(k))
+        end
+        meta["SRP"] = srp
     end
-    !isempty(sh) && (meta["spherical_harmonics"] = sh)
 
-    return meta
-end
-
-
-"""
-    _build_force_model_keyword_metadata(; kwargs...)
-
-Build a small force-model dictionary from high-level keyword arguments. This is
-merged into the inferred or user-supplied metadata dictionary.
-"""
-function _build_force_model_keyword_metadata(;
-    dynamics_name = nothing,
-    srp_enabled = nothing,
-    srp_Cr = nothing,
-    srp_Am = nothing,
-    srp_P0 = nothing,
-    spherical_harmonics_enabled = nothing,
-    spherical_harmonics_body = nothing,
-    spherical_harmonics_file = nothing,
-    spherical_harmonics_nmax = nothing,
-    spherical_harmonics_frame = nothing,
-)
-    meta = Dict{String,Any}()
-
-    dynamics_name !== nothing && (meta["dynamics"] = String(dynamics_name))
-
-    srp = Dict{String,Any}()
-    srp_enabled !== nothing && (srp["enabled"] = srp_enabled)
-    srp_Cr !== nothing && (srp["Cr"] = Float64(srp_Cr))
-    srp_Am !== nothing && (srp["A_over_m"] = Float64(srp_Am))
-    srp_P0 !== nothing && (srp["P0"] = Float64(srp_P0))
-    !isempty(srp) && (meta["SRP"] = srp)
-
-    sh = Dict{String,Any}()
-    spherical_harmonics_enabled !== nothing && (sh["enabled"] = spherical_harmonics_enabled)
-    spherical_harmonics_body !== nothing && (sh["body"] = String(spherical_harmonics_body))
-    spherical_harmonics_file !== nothing && (sh["file"] = String(spherical_harmonics_file))
-    spherical_harmonics_nmax !== nothing && (sh["degree"] = Int(spherical_harmonics_nmax))
-    spherical_harmonics_frame !== nothing && (sh["body_fixed_frame"] = String(spherical_harmonics_frame))
-    !isempty(sh) && (meta["spherical_harmonics"] = sh)
+    include_drag = _prop(parameters, :include_drag)
+    if include_drag !== nothing
+        drag = Dict{String,Any}("enabled" => Bool(include_drag))
+        if include_drag == true
+            k = _prop(parameters, :k_drag)
+            k !== nothing && (drag["k_drag_canonical"] = _json_safe(k))
+            omega = _prop(parameters, :omega_atm)
+            omega !== nothing && (drag["omega_atm_radps"] = _json_safe(omega))
+        end
+        meta["drag"] = drag
+    end
 
     return meta
 end
