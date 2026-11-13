@@ -28,16 +28,6 @@ end
 (arc::_SpkBArc)(t) = arc.x0 .+ arc.xdot .* t
 
 
-"""Object whose `et0` property access throws; `ET0` works."""
-struct _SpkBThrowingProps end
-Base.propertynames(::_SpkBThrowingProps, private::Bool = false) = (:et0, :ET0)
-function Base.getproperty(::_SpkBThrowingProps, name::Symbol)
-    name === :et0 && error("broken property")
-    name === :ET0 && return 42.0
-    error("no property $(name)")
-end
-
-
 """Exact linear-motion state in km, km/s (type-13 Hermite interpolation reproduces it exactly)."""
 _spkB_linear_state(et; r0 = [7000.0, -1200.0, 300.0], v = [0.5, 7.2, -0.3], t0 = 0.0) =
     vcat(r0 .+ v .* (et - t0), v)
@@ -65,22 +55,50 @@ _spkB_capture(f) = mktemp() do path, io
 end
 
 
-@testset "SPK utils: property/path/summary helpers" begin
-    # _get_et0_from_parameters picks the first available alias
-    @test _spkB_HFEM._get_et0_from_parameters((ET0 = 12.5, TU = 1.0)) == 12.5
-    @test _spkB_HFEM._get_et0_from_parameters((t0_et = 3.0,)) == 3.0
-    @test _spkB_HFEM._get_et0_from_parameters((et0 = 1.0, ET0 = 2.0)) == 1.0
-    @test _spkB_HFEM._get_et0_from_parameters((TU = 1.0,)) === nothing
-    @test _spkB_HFEM._get_et0_from_parameters(nothing) === nothing
-    # an alias whose property access throws is skipped, the next one is used
-    @test _spkB_HFEM._get_et0_from_parameters(_SpkBThrowingProps()) == 42.0
+@testset "SPK utils: parameter, ID and frame helpers" begin
+    @test _spkB_HFEM._get_et0((et0 = 12, TU = 1.0)) === 12.0
+    e = try _spkB_HFEM._get_et0((ET0 = 1.0,)); nothing; catch err; err; end
+    @test e isa ErrorException && occursin("no `et0` property", e.msg)
 
-    # _add_if_found!: adds a JSON-safe value only if a property was found
-    d = Dict{String,Any}()
-    _spkB_HFEM._add_if_found!(d, "sym", (a = :abc,), (:a,))
-    _spkB_HFEM._add_if_found!(d, "missing", (a = 1,), (:b, :c))
-    @test d == Dict{String,Any}("sym" => "abc")
+    @test _spkB_HFEM._prop((a = :abc,), :a) === :abc
+    @test _spkB_HFEM._prop((a = 1,), :b) === nothing
 
+    rid = _spkB_HFEM._resolve_body_code
+    @test rid(Int32(-5); label = "spice_id") === -5
+    @test rid("EARTH"; label = "center_id") === 399
+    @test rid(SubString("MOON", 1); label = "center_id") === 301
+    @test rid("-123456"; label = "spice_id") === -123456
+    e1 = try rid("NOT_A_REAL_BODY_XYZ"; label = "center_id"); nothing; catch e; e; end
+    @test e1 isa ErrorException && occursin("Could not resolve `center_id`", e1.msg)
+    e2 = try rid(1.5; label = "spice_id"); nothing; catch e; e; end
+    @test e2 isa ErrorException && occursin("integer SPICE ID or a SPICE body name", e2.msg)
+
+    # center: central body of the dynamics
+    @test _spkB_HFEM._default_center((naif_ids = ["301", "399"],)) == "301"
+    @test _spkB_HFEM._default_center((naif_ids = [399],)) == "399"
+    @test_throws ErrorException _spkB_HFEM._default_center((naif_ids = String[],))
+    e3 = try _spkB_HFEM._default_center((TU = 1.0,)); nothing; catch e; e; end
+    @test e3 isa ErrorException && occursin("Pass `center_id`", e3.msg)
+
+    # frame: integration frame, ICRF written as J2000, EME2000 rejected
+    @test _spkB_HFEM._default_ref_frame((TU = 1.0,)) == "J2000"
+    @test _spkB_HFEM._default_ref_frame((naif_frame = "ECLIPJ2000",)) == "ECLIPJ2000"
+    @test _spkB_HFEM._default_ref_frame((naif_frame = "icrf",)) == "J2000"
+    e4 = try _spkB_HFEM._default_ref_frame((naif_frame = "EME2000",)); nothing; catch e; e; end
+    @test e4 isa ErrorException && occursin("not a SPICE frame", e4.msg)
+
+    # all defaults resolved together; explicit values take precedence
+    ids = _spkB_HFEM._resolve_spk_ids((naif_ids = ["301"], naif_frame = "ICRF"), -7, nothing, nothing)
+    @test ids == (spice_id = -7, center_id = 301, ref_frame_name = "J2000")
+    ids2 = _spkB_HFEM._resolve_spk_ids((TU = 1.0,), "-7", "EARTH", "ECLIPJ2000")
+    @test ids2 == (spice_id = -7, center_id = 399, ref_frame_name = "ECLIPJ2000")
+
+    @test _spkB_HFEM._body_name(399) == "EARTH"
+    @test _spkB_HFEM._body_name(-987654) === nothing
+end
+
+
+@testset "SPK utils: path/summary helpers" begin
     # _display_path
     @test _spkB_HFEM._display_path(nothing) == ""
     @test _spkB_HFEM._display_path(joinpath(pwd(), "a", "b.bsp")) == joinpath("a", "b.bsp")
@@ -94,10 +112,6 @@ end
     # objects that do not support `get` with this key fall back to the default
     @test _spkB_HFEM._summary_get([1, 2, 3], "k", :dflt) == :dflt
     @test _spkB_HFEM._summary_get(5, "k", :dflt) == :dflt
-
-    # _tool_path
-    @test _spkB_HFEM._tool_path("C:\\work\\out\\file.bsp") == "C:/work/out/file.bsp"
-    @test _spkB_HFEM._tool_path(SubString("a/b\\c", 1)) == "a/b/c"
 end
 
 
@@ -105,42 +119,28 @@ end
     out = _spkB_capture() do
         _spkB_HFEM._print_spk_pipeline_summary(
             output_spk = joinpath(pwd(), "run", "traj.bsp"),
-            maneuver_txt = joinpath(pwd(), "run", "jumps.txt"),
-            ocp_maneuver_txt = joinpath(pwd(), "run", "ocp.txt"),
-            metadata_json = joinpath(pwd(), "run", "meta.json"),
             segment_count = 7,
-            intermediate_dir = joinpath(pwd(), "run", "tmp"),
-            maneuver_summary = nothing,
+            maneuver_txt = joinpath(pwd(), "run", "ocp.txt"),
+            trajectory_maneuver_txt = joinpath(pwd(), "run", "jumps.txt"),
+            metadata_json = joinpath(pwd(), "run", "meta.json"),
             ocp_control_summary = Dict("total_control_scalar_mps" => 1.25),
         )
     end
     @test occursin("SPK generation complete", out)
     @test occursin(r"segments\s+: 7", out)
     @test occursin("SPK                         : " * joinpath("run", "traj.bsp"), out)
-    @test occursin("maneuvers                   : " * joinpath("run", "jumps.txt"), out)
-    @test occursin("OCP maneuvers               : " * joinpath("run", "ocp.txt"), out)
+    @test occursin("maneuvers (OCP controls)    : " * joinpath("run", "ocp.txt"), out)
+    @test occursin("trajectory-jump maneuvers   : " * joinpath("run", "jumps.txt"), out)
     @test occursin("metadata JSON               : " * joinpath("run", "meta.json"), out)
-    @test occursin("intermediates               : " * joinpath("run", "tmp"), out)
     @test occursin("total control (OCP scalar)  : 1.250000e+00 m/s", out)
 
-    # optional products omitted; identical OCP/maneuver paths are listed once
-    same = joinpath(pwd(), "m.txt")
+    # optional products omitted
     out2 = _spkB_capture() do
-        _spkB_HFEM._print_spk_pipeline_summary(
-            output_spk = joinpath(pwd(), "x.bsp"),
-            maneuver_txt = same,
-            ocp_maneuver_txt = same,
-            metadata_json = nothing,
-            segment_count = 1,
-            intermediate_dir = nothing,
-            maneuver_summary = nothing,
-            ocp_control_summary = nothing,
-        )
+        _spkB_HFEM._print_spk_pipeline_summary(output_spk = joinpath(pwd(), "x.bsp"), segment_count = 1)
     end
-    @test occursin("maneuvers                   : m.txt", out2)
-    @test !occursin("OCP maneuvers", out2)
+    @test occursin("SPK                         : x.bsp", out2)
+    @test !occursin("maneuvers", out2)
     @test !occursin("metadata JSON", out2)
-    @test !occursin("intermediates", out2)
     @test !occursin("total control", out2)
 
     # _print_progress
@@ -199,55 +199,12 @@ end
 end
 
 
-@testset "SPK utils: segment state/setup file discovery" begin
-    mktempdir() do tmpdir
-        Y1 = reduce(hcat, [_spkB_linear_state(et) for et in (100.0, 150.0, 200.0)])
-        Y2 = reduce(hcat, [_spkB_linear_state(et) for et in (200.0, 260.0)])
-        Y10 = reduce(hcat, [_spkB_linear_state(et) for et in (900.0, 950.0)])
-        _spkB_HFEM.write_spk_states_file(joinpath(tmpdir, "seg_002_states.txt"), [200.0, 260.0], Y2)
-        _spkB_HFEM.write_spk_states_file(joinpath(tmpdir, "seg_001_states.txt"), [100.0, 150.0, 200.0], Y1)
-        # not matching the 3-digit pattern: ignored by the directory scan
-        _spkB_HFEM.write_spk_states_file(joinpath(tmpdir, "seg_10_states.txt"), [900.0, 950.0], Y10)
-        # header-only file: contributes no epochs
-        write(joinpath(tmpdir, "seg_003_states.txt"), "# ETSECONDS\n")
-        for name in ("seg_002_setup.txt", "seg_001_setup.txt", "seg_1_setup.txt", "notes.txt")
-            write(joinpath(tmpdir, name), "x\n")
-        end
-
-        @test _spkB_HFEM.list_segment_state_files(tmpdir) ==
-            [joinpath(tmpdir, "seg_00$(k)_states.txt") for k in 1:3]
-        @test _spkB_HFEM.list_segment_setup_files(tmpdir) ==
-            [joinpath(tmpdir, "seg_00$(k)_setup.txt") for k in 1:2]
-
-        @test _spkB_HFEM.read_segment_boundary_epochs(tmpdir) == [100.0, 200.0, 260.0]
-        @test _spkB_HFEM.read_segment_boundary_epochs(tmpdir, 1) == [100.0, 200.0]
-        @test _spkB_HFEM.read_segment_boundary_epochs(tmpdir, 3) == [100.0, 200.0, 260.0]
-        err = try
-            _spkB_HFEM.read_segment_boundary_epochs(tmpdir, 4)
-            nothing
-        catch e
-            e
-        end
-        @test err isa ErrorException
-        @test occursin("Missing states file", err.msg) && occursin("seg_004_states.txt", err.msg)
-    end
-end
-
-
 @testset "SPK type 13: id/segment-id/path helpers" begin
-    rid = _spkB_HFEM._resolve_spice_integer_id
-    @test rid(-5, "EARTH"; label = "spice") === -5          # ID takes precedence over name
-    @test rid(nothing, "EARTH"; label = "center") === 399
-    @test rid(nothing, SubString("MOON", 1); label = "center") === 301
-    e1 = try rid(nothing, "NOT_A_REAL_BODY_XYZ"; label = "center"); nothing; catch e; e; end
-    @test e1 isa ErrorException && occursin("Could not resolve center name", e1.msg)
-    e2 = try rid(nothing, nothing; label = "spice"); nothing; catch e; e; end
-    @test e2 isa ErrorException && occursin("`spice_id` or `spice_name`", e2.msg)
-
     sid = _spkB_HFEM._spkw13_segment_id
-    @test sid("ARC", 7) == "ARC"
-    @test sid("ARC", 7; segment_id_per_seg = true) == "ARC_007"
-    @test_throws ErrorException sid(repeat("X", 38), 1; segment_id_per_seg = true)
+    @test sid("ARC", 7) == "ARC_007"
+    @test sid("ARC", 1234) == "ARC_1234"
+    @test sid(repeat("X", 36), 1) == repeat("X", 36) * "_001"
+    @test_throws ErrorException sid(repeat("X", 37), 1)        # 41 characters with the suffix
     @test_throws ErrorException sid("bad\tid", 1)
     @test_throws ErrorException sid("   ", 1)
 
@@ -330,24 +287,29 @@ end
 
         printed = _spkB_capture() do
             _spkB_HFEM.write_spkw13_spk!(
-                segs, out; spice_id = _spkB_ID_A, center_name = "EARTH",
-                segment_id = "SPKB", segment_id_per_seg = true, polynom_degree = 5,
-                internal_file_name = repeat("I", 80), verbose = true, show_progress = false,
+                segs, out; spice_id = _spkB_ID_A, center_id = 399,
+                segment_id = "SPKB", polynom_degree = 5, verbose = true, show_progress = true,
             )
         end
         @test isfile(out)
-        @test occursin("SPK complete: ", printed)
+        @test occursin("writing SPK segments", printed)
         @test sort(readdir(tmpdir)) == ["w13.bsp"]   # temporary BSP was installed, not left behind
         ets = [0.0, 123.0, 400.0, 555.5, 800.0]
         for (et, x) in zip(ets, _spkB_query(out, _spkB_ID_A, 399, ets))
             @test x ≈ _spkB_linear_state(et) rtol = 1e-12
         end
 
+        # segment descriptors read back from the file
+        segments = _spkB_HFEM.read_spk_segments(out)
+        @test length(segments) == 2
+        @test segments[2] == (spice_id = _spkB_ID_A, center_id = 399, ref_frame_name = "J2000", spk_type = 13,
+            first = 400.0, last = 800.0, segment_id = "SPKB_002", polynom_degree = 5, point_count = 9)
+        @test_throws ErrorException _spkB_HFEM.read_spk_segments(joinpath(tmpdir, "none.bsp"))
+
         # overwrite an existing kernel with different content (safe-install backup path)
         v2 = [-1.0, 2.0, 0.25]
         segs2 = [_spkB_linear_segment(0.0, 800.0, 11; v = v2)]
-        _spkB_HFEM.write_spkw13_spk!(segs2, out; spice_id = _spkB_ID_A, center_id = 399,
-            verbose = false, show_progress = false)
+        _spkB_HFEM.write_spkw13_spk!(segs2, out; spice_id = _spkB_ID_A, center_id = 399, verbose = false)
         @test sort(readdir(tmpdir)) == ["w13.bsp"]
         for (et, x) in zip(ets, _spkB_query(out, _spkB_ID_A, 399, ets))
             @test x ≈ _spkB_linear_state(et; v = v2) rtol = 1e-12
@@ -361,16 +323,15 @@ end
 
         # invalid even degree is rejected during validation, before any temporary
         # BSP is opened; the previous output is preserved, the error propagates
-        tmp_spk = joinpath(tmpdir, "staging", "stage.bsp")
         e = try
             _spkB_HFEM.write_spkw13_spk!(segs, out; spice_id = _spkB_ID_A, center_id = 399,
-                polynom_degree = 6, tmp_spk = tmp_spk, verbose = false)
+                polynom_degree = 6, verbose = false)
             nothing
         catch err
             err
         end
         @test e isa ErrorException && occursin("must be odd", e.msg)
-        @test !isfile(tmp_spk)
+        @test sort(readdir(tmpdir)) == ["w13.bsp"]
         @test read(out) == bytes
 
         # failure inside SPICE after `spkopn` with zero segments written (unknown
@@ -378,22 +339,14 @@ end
         # released via `dafcls` and the staged file removed (EBUSY on Windows otherwise)
         e = try
             _spkB_HFEM.write_spkw13_spk!(segs, out; spice_id = _spkB_ID_A, center_id = 399,
-                ref_frame_name = "SPKB_NOT_A_FRAME", tmp_spk = tmp_spk, verbose = false)
+                ref_frame_name = "SPKB_NOT_A_FRAME", verbose = false)
             nothing
         catch err
             err
         end
         @test e isa SPICE.SpiceError
-        @test !isfile(tmp_spk)
+        @test sort(readdir(tmpdir)) == ["w13.bsp"]
         @test read(out) == bytes
-
-        # a stale file at the explicit temporary path is replaced, not appended to
-        write(tmp_spk, "stale")
-        out_b = joinpath(tmpdir, "w13b.bsp")
-        _spkB_HFEM.write_spkw13_spk!(segs, out_b; spice_id = _spkB_ID_B, center_id = 399,
-            tmp_spk = tmp_spk, verbose = false)
-        @test !isfile(tmp_spk) && isfile(out_b)
-        @test _spkB_query(out_b, _spkB_ID_B, 399, [200.0])[1] ≈ _spkB_linear_state(200.0) rtol = 1e-12
     end
 end
 
@@ -422,11 +375,15 @@ end
         try
             _spkB_HFEM.write_spkw13_spk!([seg], out; spice_id = _spkB_ID_C, center_id = 399,
                 ref_frame_name = "SPKB_TEST_FRAME", frame_def_file = fk, verbose = false)
-            _spkB_HFEM.append_spkw13_segment_to_spk!(seg; output_spk = out_app, segment_index = 1,
+            # the appended segment uses the custom frame; the first one does not
+            _spkB_HFEM.write_spkw13_spk!([_spkB_linear_segment(-300.0, 0.0, 7)], out_app;
+                spice_id = _spkB_ID_D, center_id = 399, verbose = false)
+            _spkB_HFEM.append_spkw13_segment_to_spk!(seg, out_app; segment_index = 2,
                 spice_id = _spkB_ID_D, center_id = 399, ref_frame_name = "SPKB_TEST_FRAME",
                 frame_def_file = fk)
             # the frame is now known to SPICE
             @test SPICE.namfrm("SPKB_TEST_FRAME") == 1771001
+            @test _spkB_HFEM.read_spk_segments(out_app)[2].ref_frame_name == "SPKB_TEST_FRAME"
             for (spk, id) in ((out, _spkB_ID_C), (out_app, _spkB_ID_D))
                 x_frame = _spkB_query(spk, id, 399, [150.0]; frame = "SPKB_TEST_FRAME")[1]
                 x_j2000 = _spkB_query(spk, id, 399, [150.0]; frame = "J2000")[1]
@@ -445,12 +402,10 @@ end
         out = joinpath(tmpdir, "app.bsp")
         s1 = _spkB_linear_segment(0.0, 200.0, 5)
         s2 = _spkB_linear_segment(200.0, 400.0, 5)
-        kw = (spice_id = _spkB_ID_E, center_id = 399, segment_id = "APP", segment_id_per_seg = true)
+        kw = (spice_id = _spkB_ID_E, center_id = 399, segment_id = "APP")
 
-        @test_throws ErrorException _spkB_HFEM.append_spkw13_segment_to_spk!(s1; output_spk = joinpath(tmpdir, "a.txt"),
-            segment_index = 1, kw...)
         e = try
-            _spkB_HFEM.append_spkw13_segment_to_spk!(s1; output_spk = out, segment_index = 1, append = true, kw...)
+            _spkB_HFEM.append_spkw13_segment_to_spk!(s2, out; segment_index = 2, kw...)
             nothing
         catch err
             err
@@ -458,85 +413,30 @@ end
         @test e isa ErrorException && occursin("Cannot append", e.msg)
         @test !isfile(out)
 
-        # create (append inferred as false), then append (inferred as true)
-        @test _spkB_HFEM.append_spkw13_segment_to_spk!(s1; output_spk = out, segment_index = 1, kw...) == abspath(out)
-        @test _spkB_HFEM.append_spkw13_segment_to_spk!(s2; output_spk = out, segment_index = 2,
-            internal_file_name = repeat("J", 70), kw...) == abspath(out)
+        _spkB_HFEM.write_spkw13_spk!([s1], out; kw..., verbose = false)
+        @test _spkB_HFEM.append_spkw13_segment_to_spk!(s2, out; segment_index = 2, kw...) == abspath(out)
         ets = [10.0, 199.0, 201.0, 390.0]
         for (et, x) in zip(ets, _spkB_query(out, _spkB_ID_E, 399, ets))
             @test x ≈ _spkB_linear_state(et) rtol = 1e-12
         end
-
-        # explicit append=false on an existing file is refused
-        bytes = read(out)
-        e2 = try
-            _spkB_HFEM.append_spkw13_segment_to_spk!(s2; output_spk = out, segment_index = 3, append = false, kw...)
-            nothing
-        catch err
-            err
-        end
-        @test e2 isa ErrorException && occursin("append=false", e2.msg)
-        @test read(out) == bytes
+        @test [s.segment_id for s in _spkB_HFEM.read_spk_segments(out)] == ["APP_001", "APP_002"]
 
         # SPICE rejects an unknown frame inside spkw13: the handle is closed and the
         # SPICE error propagates; the existing segments remain readable
-        @test_throws SPICE.SpiceError _spkB_HFEM.append_spkw13_segment_to_spk!(s2; output_spk = out,
-            segment_index = 3, ref_frame_name = "SPKB_NOT_A_FRAME", kw...)
+        @test_throws SPICE.SpiceError _spkB_HFEM.append_spkw13_segment_to_spk!(s2, out;
+            segment_index = 3, kw..., ref_frame_name = "SPKB_NOT_A_FRAME")
         @test _spkB_query(out, _spkB_ID_E, 399, [100.0])[1] ≈ _spkB_linear_state(100.0) rtol = 1e-12
         # the file handle was released: the file can be appended to again
         s3 = _spkB_linear_segment(400.0, 600.0, 5)
-        _spkB_HFEM.append_spkw13_segment_to_spk!(s3; output_spk = out, segment_index = 3, kw...)
+        _spkB_HFEM.append_spkw13_segment_to_spk!(s3, out; segment_index = 3, kw...)
         @test _spkB_query(out, _spkB_ID_E, 399, [500.0])[1] ≈ _spkB_linear_state(500.0) rtol = 1e-12
     end
 end
 
 
-@testset "SPK incremental: state files and solution segments" begin
+@testset "SPK incremental: append_ode_sol_to_spk!" begin
     mktempdir() do tmpdir
-        # --- _read_spk_states_file_for_spkw13 / append_state_file_to_spk!
-        @test_throws ErrorException _spkB_HFEM._read_spk_states_file_for_spkw13(joinpath(tmpdir, "none.txt"))
-
-        bad = joinpath(tmpdir, "bad.txt")
-        write(bad, "# ETSECONDS\n0.0,1,2,3,4,5\n")
-        e = try _spkB_HFEM._read_spk_states_file_for_spkw13(bad); nothing; catch err; err; end
-        @test e isa ErrorException && occursin("Expected 7 comma-separated fields", e.msg)
-
-        one = joinpath(tmpdir, "one.txt")
-        write(one, "# ETSECONDS\n0.0,1,2,3,4,5,6\n\n")
-        e = try _spkB_HFEM._read_spk_states_file_for_spkw13(one); nothing; catch err; err; end
-        @test e isa ErrorException && occursin("at least two states", e.msg)
-
-        ts1 = collect(0.0:50.0:300.0)
-        ts2 = collect(300.0:50.0:600.0)
-        f1 = joinpath(tmpdir, "seg_001_states.txt")
-        f2 = joinpath(tmpdir, "seg_002_states.txt")
-        _spkB_HFEM.write_spk_states_file(f1, ts1, reduce(hcat, _spkB_linear_state.(ts1)))
-        _spkB_HFEM.write_spk_states_file(f2, ts2, reduce(hcat, _spkB_linear_state.(ts2)))
-        # blank lines (and whitespace around fields) are tolerated
-        open(f2, "a") do io
-            println(io)
-            println(io, "   ")
-        end
-        seg = _spkB_HFEM._read_spk_states_file_for_spkw13(f2)
-        @test seg.epochs == ts2
-        @test seg.first == 300.0 && seg.last == 600.0
-        @test seg.states[end] ≈ _spkB_linear_state(600.0) rtol = 1e-14
-
-        out = joinpath(tmpdir, "from_states.bsp")
-        r1 = _spkB_HFEM.append_state_file_to_spk!(f1; output_spk = out, segment_index = 1,
-            spice_id = _spkB_ID_A, center_id = 399)
-        r2 = _spkB_HFEM.append_state_file_to_spk!(f2; output_spk = out, segment_index = 2,
-            spice_id = _spkB_ID_A, center_id = 399)
-        @test r1.appended == false && r2.appended == true
-        @test r1.output_spk == abspath(out) && r2.state_file == f2 && r2.setup_file === nothing
-        @test r1.epoch_range == (0.0, 300.0) && r2.epoch_range == (300.0, 600.0)
-        ets = [25.0, 299.0, 333.0, 600.0]
-        for (et, x) in zip(ets, _spkB_query(out, _spkB_ID_A, 399, ets))
-            @test x ≈ _spkB_linear_state(et) rtol = 1e-12
-        end
-
-        # --- append_solution_segment_to_spk!
-        params = (TU = 100.0, DU = 1000.0, VU = 10.0, et0 = 500.0)
+        params = (TU = 100.0, DU = 1000.0, VU = 10.0, et0 = 500.0, naif_ids = ["399"])
         # dynamically consistent arc: d(position)/dt = velocity (DU/TU == VU here)
         arc1 = _SpkBArc([0.0, 4.0], [1.0, 2.0, 3.0, 0.1, -0.2, 0.3], [0.1, -0.2, 0.3, 0.0, 0.0, 0.0])
         arc2 = _SpkBArc([4.0, 8.0], arc1.x0, arc1.xdot)
@@ -544,29 +444,21 @@ end
 
         sol_spk = joinpath(tmpdir, "sol.bsp")
         write(sol_spk, "not an spk")
-        # existing file and overwrite=false: refused, file untouched
-        e = try
-            _spkB_HFEM.append_solution_segment_to_spk!(arc1, params; output_spk = sol_spk,
-                segment_index = 1, append = false, overwrite = false, spice_id = _spkB_ID_B, center_id = 399)
-            nothing
-        catch err
-            err
-        end
-        @test e isa ErrorException && occursin("overwrite=false", e.msg)
-        @test read(sol_spk, String) == "not an spk"
 
-        # existing file and overwrite=true: removed and recreated; et0 taken from `parameters`
-        r1 = _spkB_HFEM.append_solution_segment_to_spk!(arc1, params; output_spk = sol_spk,
-            segment_index = 1, append = false, dt_sec = 50.0, spice_id = _spkB_ID_B, center_id = 399)
+        # append=false replaces an existing file; et0 is taken from `parameters`
+        r1 = _spkB_HFEM.append_ode_sol_to_spk!(arc1, params; output_spk = sol_spk,
+            append = false, dt_sec = 50.0, spice_id = _spkB_ID_B)
         @test r1.appended == false
+        @test r1.segment_index == 1
         @test r1.epoch_range == (500.0, 900.0)
         @test r1.point_count == 9
-        @test r1.state_file === nothing
-        # et0 alias `ET0` is also accepted by the two-argument method
-        r2 = _spkB_HFEM.append_solution_segment_to_spk!(arc2, (TU = 100.0, DU = 1000.0, VU = 10.0, ET0 = 500.0);
-            output_spk = sol_spk, segment_index = 2, dt_sec = 50.0, spice_id = _spkB_ID_B, center_id = 399)
+        # explicit et0 and a center given by name
+        r2 = _spkB_HFEM.append_ode_sol_to_spk!(arc2, 500.0, (TU = 100.0, DU = 1000.0, VU = 10.0);
+            output_spk = sol_spk, append = true, dt_sec = 50.0, spice_id = _spkB_ID_B, center_id = "EARTH")
         @test r2.appended == true
+        @test r2.segment_index == 2
         @test r2.epoch_range == (900.0, 1300.0)
+        @test sort(readdir(tmpdir)) == ["sol.bsp"]
         ts_nd = [0.5, 3.9, 4.1, 8.0]
         xs = _spkB_query(sol_spk, _spkB_ID_B, 399, params.et0 .+ ts_nd .* params.TU)
         for (t_nd, x) in zip(ts_nd, xs)
@@ -574,30 +466,16 @@ end
             @test x[4:6] ≈ ref(t_nd)[4:6] atol = 1e-10
         end
 
-        # no recognizable et0 in `parameters`
-        e = try
-            _spkB_HFEM.append_solution_segment_to_spk!(arc1, (TU = 100.0, DU = 1000.0, VU = 10.0);
-                output_spk = joinpath(tmpdir, "no_et0.bsp"), segment_index = 1, spice_id = _spkB_ID_B, center_id = 399)
-            nothing
-        catch err
-            err
-        end
-        @test e isa ErrorException && occursin("No `et0` argument", e.msg)
-        @test !isfile(joinpath(tmpdir, "no_et0.bsp"))
-    end
-end
-
-
-@testset "SPK incremental: prepare_spk_output!" begin
-    mktempdir() do tmpdir
-        out = joinpath(tmpdir, "nested", "p.bsp")
-        mkpath(dirname(out))
-        write(out, "old")
-        e = try _spkB_HFEM.prepare_spk_output!(out; overwrite = false); nothing; catch err; err; end
-        @test e isa ErrorException && occursin("overwrite=false", e.msg)
-        @test read(out, String) == "old"
-        @test _spkB_HFEM.prepare_spk_output!(out; overwrite = true) == abspath(out)
-        @test !isfile(out) && isdir(dirname(out))
+        # argument checks happen before anything is written
+        bad = (output_spk = joinpath(tmpdir, "bad.bsp"), spice_id = _spkB_ID_B, append = false)
+        e = try _spkB_HFEM.append_ode_sol_to_spk!(arc1, (TU = 100.0, DU = 1000.0, VU = 10.0, naif_ids = ["399"]); bad...); nothing; catch err; err; end
+        @test e isa ErrorException && occursin("no `et0` property", e.msg)
+        e = try _spkB_HFEM.append_ode_sol_to_spk!(arc1, 500.0, (TU = 100.0, DU = 1000.0, VU = 10.0); bad...); nothing; catch err; err; end
+        @test e isa ErrorException && occursin("Pass `center_id`", e.msg)
+        @test_throws ErrorException _spkB_HFEM.append_ode_sol_to_spk!(arc1, params; bad..., dt_sec = 0.0)
+        e = try _spkB_HFEM.append_ode_sol_to_spk!(arc1, params; bad..., output_spk = joinpath(tmpdir, "x.txt")); nothing; catch err; err; end
+        @test e isa ErrorException && occursin("must end in `.bsp`", e.msg)
+        @test sort(readdir(tmpdir)) == ["sol.bsp"]
     end
 end
 
@@ -607,70 +485,75 @@ end
         jumps = joinpath(tmpdir, "jumps.txt")
         entries = [(et = 1.0, dv = [1.0, 0.0, 0.0])]
 
-        # no OCP summary: the trajectory-jump diagnostic becomes the primary product,
-        # entries merged on request, maneuver_summary deep-merged, extra metadata stored
+        # trajectory jumps only: entries merged on request, coverage per window, extra metadata
         meta = _spkB_HFEM.build_spk_metadata(
             output_spk = joinpath(tmpdir, "a.bsp"),
-            maneuver_file = jumps,
-            epoch_ranges = [(10.0, 20.0), (20.0, 35.0)],
-            coast_windows = [(1, 2)],
+            spice_id = -123456,
+            center_id = 301,
+            trajectory_maneuver_file = jumps,
+            windows = [(start_et = 10.0, end_et = 20.0, coast_window = (1, 2)), (start_et = 20.0, end_et = 35.0)],
             maneuver_summary = Dict("count" => 1, "stats" => Dict("max" => 2.0)),
             maneuver_entries = entries,
             merge_maneuvers_into_metadata = true,
             extra_metadata = (run = :mc01, seeds = (1, 2)),
         )
-        m = meta["maneuvers"]
-        @test m["is_primary"] == true
-        @test m["type"] == "trajectory_jump_diagnostic"
+        @test meta["schema"] == "HighFidelityEphemerisModel.SPKMetadata.v2"
+        @test meta["spk"]["object_id"] == -123456 && meta["spk"]["object_name"] === nothing
+        @test meta["spk"]["center_id"] == 301 && meta["spk"]["center_name"] == "MOON"
+        @test meta["spk"]["spk_type"] == 13
+        @test collect(keys(meta["maneuvers"])) == ["trajectory_jumps"]
+        m = meta["maneuvers"]["trajectory_jumps"]
         @test m["file"] == abspath(jumps)
         @test m["count"] == 1 && m["stats"] == Dict("max" => 2.0)
-        @test m["merged_into_metadata"] == true
         @test m["entries"] == [Dict("et" => 1.0, "dv" => [1.0, 0.0, 0.0])]
-        @test meta["products"]["maneuver_file"] == abspath(jumps)
-        @test meta["products"]["ocp_maneuver_file"] === nothing
+        @test meta["products"]["trajectory_jump_maneuver_file"] == abspath(jumps)
+        @test meta["products"]["maneuver_file"] === nothing
         @test meta["extra"] == Dict("run" => "mc01", "seeds" => Any[1, 2])
         @test meta["coverage"]["start_et"] == 10.0 && meta["coverage"]["end_et"] == 35.0
         w = meta["coverage"]["windows"]
-        @test w[1]["coast_window"] == [1, 2] && !haskey(w[2], "coast_window")
+        @test w[1] == Dict("segment_index" => 1, "start_et" => 10.0, "end_et" => 20.0, "coast_window" => [1, 2])
+        @test !haskey(w[2], "coast_window")
+        @test meta["sampling"] == Dict("dt_sec" => nothing, "segment_gap_sec" => nothing, "segment_count" => 2)
         @test meta["force_model"] == Dict{String,Any}()   # no parameters
 
         # coverage is the min/max over the windows, not first/last (ranges given out of order)
-        meta_u = _spkB_HFEM.build_spk_metadata(output_spk = "u.bsp", epoch_ranges = [(20.0, 35.0), (10.0, 20.0)])
+        meta_u = _spkB_HFEM.build_spk_metadata(output_spk = "u.bsp",
+            windows = [(start_et = 20.0, end_et = 35.0), (start_et = 10.0, end_et = 20.0)])
         @test meta_u["coverage"]["start_et"] == 10.0 && meta_u["coverage"]["end_et"] == 35.0
 
-        # merge requested but no entries supplied -> empty list
+        # nothing given: no maneuver sections, no coverage, no extra
         meta_e = _spkB_HFEM.build_spk_metadata(output_spk = "b.bsp", merge_maneuvers_into_metadata = true)
-        @test meta_e["maneuvers"]["entries"] == Any[]
+        @test meta_e["maneuvers"] == Dict{String,Any}()
         @test meta_e["coverage"]["start_et"] === nothing
         @test !haskey(meta_e, "extra")
 
-        # OCP summary with only the vector-norm cost, entries merged
+        # OCP controls with only the vector-norm cost; merged without entries -> empty list;
+        # force-model dictionary merged over the inferred one
         ocp = joinpath(tmpdir, "ocp.txt")
         meta2 = _spkB_HFEM.build_spk_metadata(
             output_spk = "c.bsp",
-            maneuver_file = jumps,
             ocp_control_file = ocp,
-            ocp_control_summary = Dict{String,Any}("total_control_vector_norm_mps" => 0.5,
-                "cost_convention_vector_norm" => "sum(norm.(u_i))"),
-            ocp_control_entries = [(et = 2.0,)],
-            merge_ocp_maneuvers_into_metadata = true,
-            force_model_metadata = (dynamics = :Nbody,),
+            ocp_control_summary = Dict{String,Any}("total_control_vector_norm_mps" => 0.5),
+            merge_maneuvers_into_metadata = true,
+            parameters = (TU = 2.0, DU = 3, VU = 1.5, include_srp = false),
+            et0 = 7,
+            force_model_metadata = (dynamics = :Nbody, SRP = Dict("Cr" => 1.2)),
         )
-        m2 = meta2["maneuvers"]
-        @test m2["type"] == "ocp_control" && m2["is_primary"] == true
+        m2 = meta2["maneuvers"]["ocp_control"]
         @test m2["primary_cost_key"] == "total_control_vector_norm_mps"
-        @test m2["cost_convention"] == "sum(norm.(u_i))"
-        @test m2["entries"] == [Dict("et" => 2.0)]
-        @test m2["trajectory_jumps"]["is_primary"] == false
+        @test m2["file"] == abspath(ocp)
+        @test m2["entries"] == Any[]
+        @test !haskey(meta2["maneuvers"], "trajectory_jumps")
         @test meta2["products"]["maneuver_file"] == abspath(ocp)
-        @test meta2["products"]["trajectory_jump_maneuver_file"] == abspath(jumps)
-        @test meta2["force_model"] == Dict("dynamics" => "Nbody")
+        @test meta2["time_base"] == Dict("et0" => 7.0, "TU_seconds" => 2.0, "DU_km" => 3, "VU_kmps" => 1.5)
+        @test meta2["force_model"] == Dict("dynamics" => "Nbody", "SRP" => Dict("enabled" => false, "Cr" => 1.2))
 
         meta3 = _spkB_HFEM.build_spk_metadata(output_spk = "d.bsp",
-            ocp_control_summary = Dict{String,Any}("total_control_scalar_mps" => 1.0, "units" => "m/s"), merge_ocp_maneuvers_into_metadata = true)
-        @test meta3["maneuvers"]["entries"] == Any[]
-        @test meta3["maneuvers"]["cost_convention"] === nothing
-        @test meta3["maneuvers"]["primary_cost_key"] == "total_control_scalar_mps"
+            ocp_control_summary = Dict{String,Any}("total_control_scalar_mps" => 1.0),
+            ocp_control_entries = [(et = 2.0,)], merge_maneuvers_into_metadata = true)
+        @test meta3["maneuvers"]["ocp_control"]["primary_cost_key"] == "total_control_scalar_mps"
+        @test meta3["maneuvers"]["ocp_control"]["entries"] == [Dict("et" => 2.0)]
+        @test meta3["maneuvers"]["ocp_control"]["file"] === nothing
     end
 end
 
@@ -678,37 +561,47 @@ end
 @testset "SPK metadata: force-model inference and dict merging" begin
     @test _spkB_HFEM.infer_force_model_metadata(nothing) == Dict{String,Any}()
 
-    # harmonics given as a data dictionary: enabled, degree from "nmax", frame recorded
-    p_sh = (naif_ids = [399, 301], GMs = (1.0, 0.0123), spherical_harmonics_data = Dict("nmax" => 8),
-        frame_PCPF = "ITRF93", sh_file = "egm.txt", include_drag = true, k_drag = 0.1, omega_atm = 7.29e-5,
-        include_srp = true, srp_Cr = 1.3, srp_Am = 0.02, srp_P0 = 4.56e-6, k_srp_cannonball = 1e-9)
-    fm = _spkB_HFEM.infer_force_model_metadata(p_sh)
-    @test fm["naif_ids"] == [399, 301]
-    @test fm["mu_values"] == Any[1.0, 0.0123]
-    @test fm["spherical_harmonics"] == Dict("enabled" => true, "degree" => 8, "file" => "egm.txt",
-        "body_fixed_frame" => "ITRF93")
-    @test fm["drag"] == Dict("enabled" => true, "k_drag_canonical" => 0.1, "omega_atm_radps" => 7.29e-5)
-    @test fm["SRP"] == Dict("enabled" => true, "Cr" => 1.3, "A_over_m" => 0.02, "P0" => 4.56e-6,
-        "k_cannonball_canonical" => 1e-9)
+    # harmonics, SRP and drag on: central body, degree, GM and radius from the data dictionary
+    p_on = (naif_ids = ["301", "399"], GMs = (1.0, 0.0123), naif_frame = "J2000",
+        spherical_harmonics_data = Dict("nmax" => 8, "GM" => 4902.8, "REFERENCE RADIUS" => 1738.0, "Cnm" => [1.0]),
+        frame_PCPF = "MOON_PA", include_drag = true, k_drag = 0.1, omega_atm = [0.0, 0.0, 7.29e-5],
+        include_srp = true, k_srp_cannonball = 1e-9)
+    fm = _spkB_HFEM.infer_force_model_metadata(p_on)
+    @test fm["naif_ids"] == ["301", "399"]
+    @test fm["GMs"] == Any[1.0, 0.0123]
+    @test fm["frame"] == "J2000"
+    @test fm["spherical_harmonics"] == Dict("enabled" => true, "body" => "301", "degree" => 8, "GM" => 4902.8,
+        "reference_radius" => 1738.0, "body_fixed_frame" => "MOON_PA")
+    @test fm["drag"] == Dict("enabled" => true, "k_drag_canonical" => 0.1, "omega_atm_radps" => [0.0, 0.0, 7.29e-5])
+    @test fm["SRP"] == Dict("enabled" => true, "k_cannonball_canonical" => 1e-9)
+    @test !haskey(fm, "parameters_type")   # duck-typed parameters
 
-    # explicit degree overrides the data dictionary's nmax
-    @test _spkB_HFEM.infer_force_model_metadata((spherical_harmonics_data = Dict("nmax" => 8), nmax = 4))["spherical_harmonics"]["degree"] == 4
-    # harmonics off: the body-fixed frame is not reported as a gravity frame
-    fm_off = _spkB_HFEM.infer_force_model_metadata((use_spherical_harmonics = false, frame_PCPF = "ITRF93"))
-    @test fm_off["spherical_harmonics"] == Dict("enabled" => false)
-    fm_on = _spkB_HFEM.infer_force_model_metadata((use_spherical_harmonics = true, frame_PCPF = "MOON_PA"))
-    @test fm_on["spherical_harmonics"] == Dict("enabled" => true, "body_fixed_frame" => "MOON_PA")
-    # nothing recognizable -> no sub-dictionaries
+    # everything off: coefficients computed by the constructors are not reported
+    p_off = (spherical_harmonics_data = nothing, frame_PCPF = "ITRF93", include_drag = false, k_drag = 0.1,
+        include_srp = false, k_srp_cannonball = 47.0)
+    @test _spkB_HFEM.infer_force_model_metadata(p_off) == Dict(
+        "spherical_harmonics" => Dict("enabled" => false),
+        "drag" => Dict("enabled" => false),
+        "SRP" => Dict("enabled" => false))
+
+    # nothing recognizable -> no entries
     @test _spkB_HFEM.infer_force_model_metadata((foo = 1,)) == Dict{String,Any}()
 
-    kw = _spkB_HFEM._build_force_model_keyword_metadata(dynamics_name = :NbodySH, srp_enabled = true, srp_Cr = 1,
-        srp_Am = 2, srp_P0 = 3, spherical_harmonics_enabled = true, spherical_harmonics_body = :EARTH,
-        spherical_harmonics_file = "f.txt", spherical_harmonics_nmax = 4.0, spherical_harmonics_frame = :ITRF93)
-    @test kw == Dict("dynamics" => "NbodySH",
-        "SRP" => Dict("enabled" => true, "Cr" => 1.0, "A_over_m" => 2.0, "P0" => 3.0),
-        "spherical_harmonics" => Dict("enabled" => true, "body" => "EARTH", "file" => "f.txt",
-            "degree" => 4, "body_fixed_frame" => "ITRF93"))
-    @test _spkB_HFEM._build_force_model_keyword_metadata() == Dict{String,Any}()
+    # the package's parameter struct
+    p_spice = _spkB_HFEM.SpiceParameters(
+        0.0, 1737.4, [4902.8, 398600.4, 1.327e11], ["301", "399", "10"], "J2000", "NONE";
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna/gggrx_1200l_sha_20x20.tab"),
+        nmax = 8, frame_PCPF = "MOON_PA", include_srp = false,
+    )
+    fm_spice = _spkB_HFEM.infer_force_model_metadata(p_spice)
+    @test fm_spice["parameters_type"] == "SpiceParameters"
+    @test fm_spice["naif_ids"] == ["301", "399", "10"]
+    sh = fm_spice["spherical_harmonics"]
+    @test sh["enabled"] == true && sh["body"] == "301" && sh["degree"] == 8 && sh["body_fixed_frame"] == "MOON_PA"
+    @test haskey(sh, "GM") && haskey(sh, "reference_radius")
+    # Sun in `naif_ids` gives a nonzero k_srp_cannonball even with SRP off: not reported
+    @test p_spice.k_srp_cannonball != 0.0
+    @test fm_spice["SRP"] == Dict("enabled" => false)
 
     base = Dict{String,Any}("a" => 1, "n" => Dict{String,Any}("x" => 1, "y" => Dict{String,Any}("z" => 1)), "s" => "keep")
     over = Dict{String,Any}("a" => 2, "n" => Dict{String,Any}("y" => Dict{String,Any}("w" => 2), "v" => 3), "s" => Dict("now" => "dict"))

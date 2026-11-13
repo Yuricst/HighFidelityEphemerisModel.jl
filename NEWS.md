@@ -48,6 +48,57 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
   are unchanged; only code that reads `params.abcorr` back sees the difference. Other
   characters (tabs, non-ASCII) are kept, so strings that SPICE rejects are still
   rejected.
+- **Simplified SPK interface (#63).** `ode_sol_to_spk` goes from 55 to 24 keywords;
+  information already in `parameters` is no longer passed again.
+  - `spice_id` and `center_id` accept an integer ID or a SPICE name; `object_name` and
+    `center_name` are removed. `center_id` defaults to the central body
+    `parameters.naif_ids[1]`, and `ref_frame_name` to the integration frame
+    `parameters.naif_frame` (`"ICRF"` is written as `"J2000"`; `"EME2000"`, which SPICE
+    does not know, must be replaced by an explicit `ref_frame_name`).
+  - Force-model metadata is inferred from `parameters` (bodies, GMs, frame, spherical
+    harmonics body/degree/GM/radius/frame, SRP, drag). The keywords `dynamics_name`,
+    `srp_enabled`, `srp_Cr`, `srp_Am`, `srp_P0`, `spherical_harmonics_enabled`,
+    `spherical_harmonics_body`, `spherical_harmonics_file`, `spherical_harmonics_nmax`,
+    `nmax` and `spherical_harmonics_frame` are removed: pass anything else through
+    `force_model_metadata`, which is now deep-merged into the inferred entries instead
+    of replacing them. SRP/drag coefficients are only reported when the perturbation is
+    enabled.
+  - Sidecar files are always named after the BSP (`<stem>_maneuvers.txt`,
+    `<stem>_trajectory_jump_maneuvers.txt`, `<stem>_metadata.json`): `maneuver_txt`,
+    `ocp_maneuver_txt` and `metadata_json` are removed. Passing `ocp_control` writes the
+    maneuver file and requires `ocp_control_times` (`write_ocp_maneuvers` and the
+    summary-only mode are removed). `merge_ocp_maneuvers_into_metadata` is folded into
+    `merge_maneuvers_into_metadata`.
+  - Also removed: `output_spk_type` (always 13), `producer_id`, `internal_file_name`,
+    `ncomch`, `leapseconds_file`, `keep_intermediates`, `intermediate_parent_dir` (no
+    work directory is created any more), `print_summary` (part of `verbose`) and
+    `segment_id_per_seg`: segment IDs are now always `"<segment_id>_<k>"`, so
+    `segment_id` may have at most 36 characters (35 for kernels with 1000 or more
+    segments). `show_progress` defaults to `verbose`.
+  - The returned NamedTuple no longer has `ocp_maneuver_txt`, `intermediate_dir`,
+    `states_dir`, `setup_dir`, `state_files` or `setup_files`; `maneuver_txt` is the OCP
+    maneuver file only (`trajectory_maneuver_txt` is the jump diagnostic).
+  - The metadata schema is now `SPKMetadata.v2`: `"maneuvers"` holds separate
+    `"ocp_control"` and `"trajectory_jumps"` entries, `"spk"` has `spk_type` instead of
+    `output_spk_type` and no `producer_id`/`leapseconds_file`, coverage windows include
+    the segment ID and number of samples, and force-model GMs are stored as `"GMs"`.
+  - Incremental writing moved to `append_ode_sol_to_spk!(sol, [et0,] parameters;
+    output_spk, spice_id, append)`: passing a single solution to `ode_sol_to_spk` now
+    writes a one-segment kernel, and `append`/`segment_index` are removed from it.
+    `append` must be given explicitly (re-running a script no longer appends to an old
+    kernel), segments are numbered from the file, and no sidecar files are written per
+    arc. The new `finalize_spk(output_spk, [et0,] parameters; ...)` writes the maneuver
+    and metadata files of the whole kernel once all arcs are appended, reading the
+    segments back from the BSP.
+  - Removed helpers: `append_solution_segment_to_spk!`, `append_state_file_to_spk!`,
+    `prepare_spk_output!` (exported), `write_spk_metadata_json` is no longer exported,
+    and the text state-file helpers `write_segmented_states_for_spk!`,
+    `write_solution_segment_states_for_spk!`, `write_spk_states_file`,
+    `write_segmented_states_from_coast_windows_epsilon_trim!`,
+    `summarize_ocp_control_mps`, `write_node_to_node_maneuvers_mps`,
+    `list_segment_state_files`, `list_segment_setup_files` and
+    `read_segment_boundary_epochs` are removed. The convenience methods without `et0`
+    only read `parameters.et0` (the aliases `ET0`, `epoch0`, ... are no longer tried).
 
 ### Dependencies
 
