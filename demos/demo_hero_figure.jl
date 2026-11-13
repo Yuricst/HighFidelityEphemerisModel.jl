@@ -218,7 +218,7 @@ C1, C2, C3, C4 = colorant"#2a78d6", colorant"#eb6834", colorant"#1baf7a", colora
 INK, INK2, GRID = colorant"#0b0b0b", colorant"#52514e", colorant"#e4e3df"
 LBL = 6                                    # direct-label / legend font size
 
-set_theme!(merge(theme_latexfonts(), Theme(
+set_theme!(Theme(
     fontsize = 7,
     Axis = (xgridcolor = GRID, ygridcolor = GRID, xgridwidth = 0.4, ygridwidth = 0.4,
             spinewidth = 0.5, xtickwidth = 0.5, ytickwidth = 0.5,
@@ -233,7 +233,7 @@ set_theme!(merge(theme_latexfonts(), Theme(
     Legend = (framevisible = false, labelsize = LBL, rowgap = 0, patchsize = (8, 5),
               padding = (2, 2, 2, 2), patchlabelgap = 2),
     Lines = (linewidth = 0.8,),
-)))
+))
 
 fig = Figure(size = (504, 290), figure_padding = (1, 4, 1, 1))   # 7 in wide (1 unit = 1 pt)
 label_txt!(ax, x, y; kw...) = text!(ax, x, y; fontsize = LBL, color = INK2, kw...)
