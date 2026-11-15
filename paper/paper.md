@@ -26,7 +26,7 @@ bibliography: paper.bib
 
 `HighFidelityEphemerisModel.jl` is an open-source Julia [@bezanson2017julia] package for modeling high-fidelity translational dynamics of spacecraft. The package provides equations of motion that account for the gravitational influence of multiple celestial bodies using ephemeris data from the Jet Propulsion Laboratory's SPICE ecosystem [@acton1996spice], together with configurable perturbations from a spherical harmonics model of gravitational irregularities, solar radiation pressure, and atmospheric drag. It is designed to be fully compatible with Julia's `OrdinaryDiffEq.jl` ecosystem [@rackauckas2017differentialequations].
 
-The package supports trajectory propagation in Cartesian coordinates and Gauss variational equations formulated in modified equinoctial, classical Keplerian, and ordinary equinoctial elements. Additional capabilities include state-transition matrix propagation, Jacobian and Hessian evaluation, event-condition utilities, and export of propagated trajectories to SPICE spacecraft kernels. Ephemeris and reference-frame evaluations are supported through the SPICE  kernels ecosystem. These capabilities enable researchers to incorporate high-fidelity spacecraft dynamics into trajectory analysis, sensitivity analysis, and optimization workflows, while also leveraging Julia's scientific computing libraries.
+The package supports trajectory propagation in Cartesian coordinates and Gauss variational equations formulated in modified equinoctial, classical Keplerian, and ordinary equinoctial elements. Additional capabilities include state-transition matrix propagation, Jacobian and Hessian evaluation, event-condition utilities, and export of propagated trajectories to SPICE spacecraft kernels. Ephemeris and reference-frame evaluations are supported through the SPICE kernels ecosystem. These capabilities enable researchers to incorporate high-fidelity spacecraft dynamics into trajectory analysis, sensitivity analysis, and optimization workflows, while also leveraging Julia's scientific computing libraries.
 
 # Statement of need
 
@@ -49,9 +49,7 @@ Within the Julia ecosystem, there are a number of mature spacecraft-related pack
 
 ## Dynamics models
 
-`HighFidelityEphemerisModel.jl` formulates spacecraft motion relative to a central celestial body, such as a planet, a moon, or the Sun, with additional, configurable perturbations due to gravitational irregularities of the central body modeled via spherical harmonics, third-body point-mass perturbations by other celestial bodies, solar radiation pressure, and atmospheric drag.
-The package supports propagation of the spacecraft state in terms of its inertial position and velocity vectors, as well as in terms of orbital elements throug Gauss variational equations. 
-Their implementation support rescaling the dynamics via canonical scales for improved numerical stability, selected by a user defined distance unit $\mathrm{DU}$, and an automatically scaled velocity unit $\mathrm{VU} = \sqrt{\mu / \mathrm{DU}}$, where $\mu$ is the central body's gravitational parameter, such that the time unit is $\mathrm{TU} = \mathrm{DU}/\mathrm{VU}$.
+`HighFidelityEphemerisModel.jl` formulates spacecraft motion relative to a central celestial body, such as a planet, a moon, or the Sun, with additional, configurable perturbations due to gravitational irregularities of the central body modeled via spherical harmonics, third-body point-mass perturbations by other celestial bodies, solar radiation pressure, and atmospheric drag. The package supports propagation of the spacecraft state in terms of its inertial position and velocity vectors, as well as in terms of orbital elements through Gauss variational equations. These formulations support rescaling the dynamics via canonical scales for improved numerical stability, selected by a user defined distance unit $\mathrm{DU}$, and an automatically scaled velocity unit $\mathrm{VU} = \sqrt{\mu / \mathrm{DU}}$, where $\mu$ is the central body's gravitational parameter, such that the time unit is $\mathrm{TU} = \mathrm{DU}/\mathrm{VU}$.
 
 ## Modular implementation
 
@@ -66,12 +64,12 @@ The package also provides automatic-differentiation-based Jacobian and Hessian c
 
 Figure \ref{fig:hfem-architecture} summarizes these interfaces.
 
-![`HighFidelityEphemerisModel.jl` architecture. Cartesian forces support direct propagation and Gauss variational equations (GVE). Jacobians drive Cartesian state-transition matrix (STM) evolution; Hessians are separate. Element solutions require Cartesian conversion before SPICE export. \label{fig:hfem-architecture}](figures/hfem_architecture.png){width="100%"}
+![`HighFidelityEphemerisModel.jl` architecture. Cartesian forces support direct propagation and Gauss variational equations (GVE). Jacobians drive Cartesian state-transition matrix (STM) evolution. Element solutions require Cartesian conversion before SPICE export. \label{fig:hfem-architecture}](figures/hfem_architecture.png){width="100%"}
 
 
 ## Validation
 
-We assessed the numerical consistency of `HighFidelityEphemerisModel.jl` (HFEM) v0.4.0 through comparisons with GMAT, Orekit, Nyx/ANISE, and Basilisk. The three benchmark trajectories are summarized in Table \ref{tbl:validation-cases}. The Moon-centered H7 case spans 21 days (approximately three revolutions), while the low lunar and Earth orbits are propagated for seven days with spherical harmonics through degree and order 20 and 8, respectively.
+We assessed the numerical consistency of `HighFidelityEphemerisModel.jl` (HFEM) v0.4.0 through comparisons with GMAT, Orekit, Nyx, and Basilisk. The three benchmark trajectories are summarized in Table \ref{tbl:validation-cases}. The Moon-centered H7 case spans 21 days, while the low lunar and Earth orbits are propagated for seven days with spherical harmonics through degree and order 20 and 8, respectively.
 
 | Case | Central body | Third bodies | Harmonics | Frame | Duration |
 |---|---|---|---|---|---|
@@ -81,7 +79,20 @@ We assessed the numerical consistency of `HighFidelityEphemerisModel.jl` (HFEM) 
 
 : Extended validation cases. Frames identify the axes used to evaluate spherical harmonics. \label{tbl:validation-cases}
 
-For each external implementation, we compared the propagated Cartesian states with an HFEM SPICE-backed reference using the corresponding physical configuration and numerical integration settings matched as closely as supported. GMAT employed native RK89 integration in a continuous propagation, with the HFEM reference using corresponding numerical controls and the recorded native output times. To maintain consistent time-dependent dynamics, the ET/TDB equations were transformed into GMAT's elapsed-A1 integration coordinate. Orekit used DP853, Nyx/ANISE a source-derived RK89 reference, and Basilisk RKF78 with a 0.025 s task cadence (not a fixed integration step). The GMAT comparison uses a shared external gravity/third-body force evaluator; other comparisons also share selected inputs or numerical components. Matching the integration methods does not imply identical internal step sequences or fully independent force-model validation.
+For each external implementation, we compared the propagated Cartesian states with an HFEM SPICE-backed reference using the corresponding physical configuration and numerical integration settings matched as closely as supported. GMAT employed native RK89 integration in a continuous propagation, with the HFEM reference using corresponding numerical controls and the recorded native output times. To maintain consistent time-dependent dynamics, the ET/TDB equations were transformed into GMAT's elapsed-A1 integration coordinate. Orekit used DP853, Nyx a source-derived RK89 reference, and Basilisk RKF78 with a 0.025 s task cadence. The GMAT comparison uses a shared external gravity/third-body force evaluator; other comparisons also share selected inputs or numerical components. Matching the integration methods does not imply identical internal step sequences or fully independent force-model validation.
+
+Table \ref{tbl:integrator-comparison} summarizes the integration methods and controls used for the external numerical-validation comparisons.
+
+| External package | Native integrator | HFEM reference integrator | Reference tolerances |
+| ---------------- | ----------------- | ------------------------- | -------------------- |
+| GMAT | RK89 | RK89 (Julia) | $10^{-12};\ 10^{-13}$ |
+| Orekit | DP853 | DP853 (Java) | $10^{-13};\ 10^{-12}$ |
+| Basilisk | RKF78 | RKF78 (Julia) | $(10^{-12},10^{-9})$ |
+| Nyx | RK89 | RK89 (Julia) | $10^{-12}$ |
+
+: Native and HFEM-reference integration settings for the validation cases in Table \ref{tbl:validation-cases}. Corresponding methods and selected controls do not imply identical adaptive steps, output workflows, or numerical accuracy. \label{tbl:integrator-comparison}
+
+The HFEM reference integrators use numerical controls corresponding to the external implementations. GMAT and Nyx use controller-specific scalar accuracy settings, whereas Orekit's displayed values are relative tolerances. Basilisk's tolerance pair denotes relative and absolute tolerances, with the absolute tolerance expressed in km-based state units. The Julia reference integrators implement the corresponding Runge–Kutta methods and selected error-control rules. For Orekit, HFEM equations of motion are evaluated in Julia and integrated using Java Hipparchus DP853. Matching numerical settings does not imply identical adaptive step sequences or fully independent force-model validation. For GMAT, the two values apply to H7/LLO and LEO, respectively; for Orekit, they apply to H7 and LLO/LEO, respectively.
 
 Table \ref{tbl:position-maxima} reports the maximum Euclidean position difference across stored samples for each case. Figure \ref{fig:validation-position} shows the corresponding full-duration histories without smoothing or aggregation. We also compare HFEM's Julia-native `EphemeridesParameters` backend with `SpiceParameters` under equivalent physical and numerical settings; this is a backend-consistency test rather than an independent external-propagator comparison.
 
@@ -90,7 +101,7 @@ Table \ref{tbl:position-maxima} reports the maximum Euclidean position differenc
 | `EphemeridesParameters` | $2.048\times10^{-8}$ | $2.070\times10^{-8}$ | $1.502\times10^{-7}$ |
 | GMAT | $1.517\times10^{-7}$ | $3.199\times10^{-8}$ | $6.655\times10^{-8}$ |
 | Orekit | $5.564\times10^{-8}$ | $8.052\times10^{-8}$ | $5.056\times10^{-8}$ |
-| Nyx/ANISE | $9.665\times10^{-8}$ | $3.143\times10^{-8}$ | $6.091\times10^{-8}$ |
+| Nyx | $9.665\times10^{-8}$ | $3.143\times10^{-8}$ | $6.091\times10^{-8}$ |
 | Basilisk | $4.056\times10^{-7}$ | $7.997\times10^{-7}$ | $2.116\times10^{-6}$ |
 
 : Maximum sampled position differences relative to the corresponding integration-matched HFEM reference trajectories. \label{tbl:position-maxima}
@@ -99,22 +110,15 @@ These differences measure agreement between numerical solutions, not absolute tr
 
 ![Sampled position differences over the extended benchmark durations, relative to the corresponding integration-matched HFEM references. The `EphemeridesParameters` curve compares the two HFEM backends. GMAT states are evaluated at recorded native output times. Exact zeros are omitted from logarithmic rendering. Differences do not represent absolute trajectory errors. \label{fig:validation-position}](figures/validation_position_errors.png){width="100%"}
 
-We also compared propagation runtime using `SpiceParameters` and `EphemeridesParameters`. These benchmarks use the original degree/order-4 configurations—H7 over seven days, LLO-MESH4 over 2.064 hours, and LEO-EMSH4 over 1.978 hours—and are distinct from the extended validation cases above. Table \ref{tbl:warm-performance} reports median wall-clock propagation time and the percentage reduction achieved with the Julia-native backend, calculated as $100(1-t_{\mathrm{Ephemerides}}/t_{\mathrm{SPICE}})$. The observed reductions range from 74.27% to 76.01% for these cases and computing conditions.
+We also compared propagation runtime using `SpiceParameters` and `EphemeridesParameters`, together with GMAT, Orekit, and Nyx. To reduce the computational cost of repeated measurements, we used shorter propagation durations and degree/order-4 gravity models: H7 over seven days, LLO-MESH4 over 2.064 hours, and LEO-EMSH4 over 1.978 hours. These configurations were evaluated separately from the longer-duration numerical-validation cases. Basilisk was omitted from the timing comparison because of the computational expense associated with its 0.025 s task cadence. Figure \ref{fig:workflow-runtime} presents the observed wall-clock runtimes. The Julia-native Ephemerides backend reduced median runtime relative to SPICE by 73.33%, 72.88%, and 74.84% for H7, LLO-MESH4, and LEO-EMSH4, respectively.
 
-Measurements used HFEM v0.4.0 with Julia 1.12.7 on an AMD Ryzen 7 3700X, with one Julia/BLAS thread. Each backend was measured in 20 alternating warm runs with matching physical settings, output grids, and `Vern8` integration controls (relative and absolute tolerances of $10^{-12}$). Compilation, problem/provider setup, and serialization were excluded from timing; solver initialization, in-memory output, and ordinary garbage collection were included.
+Measurements used an AMD Ryzen 7 3700X with one numerical thread per workflow. HFEM v0.4.0 used Julia 1.12.7 and `Vern8` integration with relative and absolute tolerances of $10^{-12}$. Each configuration was measured 20 times across five separate process visits, following fixed implementation-specific warm-ups. Timings included propagation and required in-memory outputs, while excluding process startup, initial setup, verification, and file serialization. Compilation and garbage collection occurring within measurements were retained. These results compare the runtimes of the configured propagation workflows.
 
-| Case | SPICE [s] | Ephemerides [s] | Runtime reduction [%] |
-|---|---:|---:|---:|
-| H7 | 0.254329 | 0.064901 | 74.48 |
-| LLO-MESH4 | 0.016468 | 0.004237 | 74.27 |
-| LEO-EMSH4 | 0.020388 | 0.004890 | 76.01 |
-
-: Median warm propagation wall-clock times and percentage reduction, based on 20 measurements per backend. \label{tbl:warm-performance}
-
+![Observed wall-clock propagation runtimes for five workflows across three degree/order-4 benchmark configurations. Bars show median runtimes from 20 measurements across five process visits per configuration. The vertical axis is logarithmic. \label{fig:workflow-runtime}](figures/propagation_runtime_comparison.png){width="100%"}
 
 # Research impact
 
-`HighFidelityEphemerisModel.jl` has supported several research on high-fidelity trajectory design and GNC in cisluar space [@shimane2026optimizationbasedformationflightlibration; @Shimane2026-qj; @phung2026verticalorbits]. This application demonstrates the integration of ephemeris-based spacecraft dynamics, sensitivity analysis, and trajectory propagation into larger numerical optimization and mission-analysis workflows.
+`HighFidelityEphemerisModel.jl` has supported several studies on high-fidelity trajectory design and GNC in cislunar space [@shimane2026optimizationbasedformationflightlibration; @Shimane2026-qj; @phung2026verticalorbits]. This application demonstrates the integration of ephemeris-based spacecraft dynamics, sensitivity analysis, and trajectory propagation into larger numerical optimization and mission-analysis workflows.
 The package is registered in the Julia General registry, distributed under the MIT licence, and installed with the following command:
 
 ```shell
