@@ -22,7 +22,7 @@ What `HighFidelityEphemerisModel.jl` contains:
 - full-ephemeris equations of motion relevant for astrodynamics
 - Cartesian and Gauss variational equation propagation using modified equinoctial, classical Keplerian, and ordinary equinoctial elements
 - callback conditions for common astrodynamics events (e.g. detection of osculating true anomaly)
-- SPICE-free ephemerides via [`Ephemerides.jl`](https://github.com/JuliaSpaceMissionDesign/Ephemerides.jl) (`EphemeridesParameters`), to define equations of motion compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
+- two ephemeris backends: direct SPICE calls, and SPICE-free ephemerides via [`Ephemerides.jl`](https://github.com/JuliaSpaceMissionDesign/Ephemerides.jl) (`EphemeridesParameters`), which are thread-safe and compatible with `EnsembleThreads` & automatic differentiation, e.g. `ForwardDiff`
 
 What `HighFidelityEphemerisModel.jl` is *not*:
 - not an integrator, i.e. there are no integration schemes (e.g. Runge-Kutta algorithms, step-correction, event detection features, etc.) implemented (at least for now)
@@ -48,7 +48,7 @@ guidance.
 
 ### Checkout the repo
 
-1. `git clone` this repositiory
+1. `git clone` this repository
 2. In your project directory, add:
 
 ```julia-repl
@@ -65,7 +65,7 @@ test
 
 ## Examples
 
-For further details, see the [docs](https://yuricst.github.io/HighFidelityEphemerisModel.jl/).
+For further details, see the [docs](https://yuricst.github.io/HighFidelityEphemerisModel.jl/), which include tutorials and worked examples (e.g. Monte Carlo maneuver dispersions on an NRHO and aerobraking during Earth flybys).
 
 ### N-body Dynamics
 
@@ -90,14 +90,16 @@ abcorr = "NONE"
 DU = 1e5                               # canonical distance unit, in km
 
 nmax = 4                               # using up to 4-by-4 spherical harmonics
-filepath_spherical_harmonics = joinpath(pkgdir(HighFidelityEphemerisModel), "data", "luna", "gggrx_1200l_sha_20x20.tab")
+filepath_spherical_harmonics = joinpath(
+    pkgdir(HighFidelityEphemerisModel), "data", "luna", "gggrx_1200l_sha_20x20.tab",
+)
 
 et0 = str2et("2026-01-05T00:00:00")    # reference epoch
 
 # SpiceParameters queries SPICE at runtime; for a SPICE-free, thread-safe and
 # ForwardDiff-compatible backend use EphemeridesParameters instead, adding e.g.
 # `ephemerides_files = [joinpath(spice_dir, "spk", "de440.bsp"), joinpath(spice_dir, "pck", "moon_pa_de440_200625.bpc")]`
-parameters = HighFidelityEphemerisModel.SpiceParameters(
+parameters = SpiceParameters(
     et0, DU, GMs, naif_ids, naif_frame, abcorr;
     filepath_spherical_harmonics = filepath_spherical_harmonics,
     nmax = nmax,
@@ -111,11 +113,12 @@ parameters = HighFidelityEphemerisModel.SpiceParameters(
 # construct & solve ODE problem
 x0 = [1.0, 0.0, 0.3, 0.5, 1.0, 0.0]         # initial state in DU & DU/TU
 tspan = (0.0, 7*86400/parameters.TU)
-prob = ODEProblem(HighFidelityEphemerisModel.eom_NbodySH!, x0, tspan, parameters)   # dispatches on the parameter type
+prob = ODEProblem(eom_NbodySH!, x0, tspan, parameters)   # the backend is selected by the parameter type
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
 
 # propagate both state & STM
 x0_stm = [x0; reshape(I(6),36)]
-prob = ODEProblem(HighFidelityEphemerisModel.eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or eom_stm_NbodySH_Ephemerides_fd! with EphemeridesParameters
+prob = ODEProblem(eom_stm_NbodySH_SPICE_fd!, x0_stm, tspan, parameters)   # or eom_stm_NbodySH_Ephemerides_fd! with EphemeridesParameters
 sol = solve(prob, Vern8(), reltol=1e-14, abstol=1e-14)
+STM = reshape(sol.u[end][7:42], 6, 6)       # final 6-by-6 STM
 ```

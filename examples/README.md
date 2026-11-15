@@ -9,8 +9,12 @@ The tutorial pages are generated from these notebooks when the docs are built.
 | [`basics.ipynb`](basics.ipynb) | Setting up parameters, solving an IVP, and propagating the STM |
 | [`perturbations.ipynb`](perturbations.ipynb) | Third-body gravity, spherical harmonics, SRP, drag, and the different backends |
 | [`gve.ipynb`](gve.ipynb) | Gauss variational equations: propagation in modified equinoctial, Keplerian, and equinoctial elements |
-| [`jacobians_hessians.ipynb`](jacobians_hessians.ipynb) | Finite-difference Jacobians & Hessians of the dynamics |
+| [`jacobians_hessians.ipynb`](jacobians_hessians.ipynb) | Jacobians & Hessians of the dynamics with ForwardDiff automatic differentiation |
 | [`ode_sol_to_spk.ipynb`](ode_sol_to_spk.ipynb) | Writing ODE solutions to SPICE SPK (BSP) files, with maneuver & metadata sidecars |
+
+The *Examples* section of the documentation is instead generated with
+[Literate.jl](https://github.com/fredrikekre/Literate.jl) from the scripts in
+[`docs/src/examples/`](../docs/src/examples/), which are run when the docs are built.
 
 
 ## SPICE kernels
@@ -24,6 +28,7 @@ $SPICE/
 ├── spk/de440.bsp
 ├── pck/gm_de440.tpc
 ├── pck/pck00011.tpc
+├── pck/earth_latest_high_prec.bpc
 ├── pck/moon_pa_de440_200625.bpc
 └── fk/moon_de440_250416.tf
 ```
