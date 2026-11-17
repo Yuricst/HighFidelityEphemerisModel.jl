@@ -196,6 +196,41 @@ end
 _spkC_read_json(path) = first(_spkC_json(collect(read(path, String)), 1))
 
 
+@testset "SPK metadata: explicit force model provenance survives JSON" begin
+    hfem = HighFidelityEphemerisModel
+    sh_file = "gggrx_1200l_sha_20x20.tab"
+    ids = ["301", "399", "10"]
+    gms = [4902.8, 398600.4, 1.327e11]
+    srp_inputs = Dict("Cr" => 1.3, "A_over_m" => 0.016, "P0" => 4.56e-6)
+    p = hfem.SpiceParameters(0.0, 1737.4, gms, ids, "J2000", "NONE";
+        filepath_spherical_harmonics = joinpath(@__DIR__, "../data/luna", sh_file),
+        nmax = 8, frame_PCPF = "MOON_PA", include_srp = true,
+        srp_Cr = srp_inputs["Cr"], srp_Am = srp_inputs["A_over_m"], srp_P0 = srp_inputs["P0"])
+    sh_source = Dict("enabled" => true, "model" => "gggrx_1200l", "file" => sh_file,
+        "provenance" => Dict("source" => "HFEM bundled lunar gravity table"))
+    supplied = Dict("dynamics" => "eom_NbodySH!", "spherical_harmonics" => sh_source, "SRP" => srp_inputs)
+    original = deepcopy(supplied)
+
+    mktempdir() do tmpdir
+        path = joinpath(tmpdir, "force_model.json")
+        meta = hfem.build_spk_metadata(output_spk = joinpath(tmpdir, "trajectory.bsp"),
+            parameters = p, force_model_metadata = supplied)
+        hfem.write_spk_metadata_json(path, meta)
+        fm = _spkC_read_json(path)["force_model"]
+        @test fm["dynamics"] == "eom_NbodySH!"
+        @test fm["naif_ids"] == ids
+        @test fm["mu_values"] == gms
+        @test fm["spherical_harmonics"] == merge(original["spherical_harmonics"],
+            Dict("body" => "301", "degree" => 8, "body_fixed_frame" => "MOON_PA",
+                "GM" => p.spherical_harmonics_data["GM"],
+                "reference_radius" => p.spherical_harmonics_data["REFERENCE RADIUS"]))
+        @test fm["SRP"] == merge(original["SRP"],
+            Dict("enabled" => true, "k_cannonball_canonical" => p.k_srp_cannonball))
+        @test supplied == original
+    end
+end
+
+
 # -----------------------------------------------------------------------------
 # Maneuver helpers
 # -----------------------------------------------------------------------------
@@ -388,10 +423,14 @@ function test_spkC_batch_verbose_trajectory_maneuvers()
         @test meta["schema"] == "HighFidelityEphemerisModel.SPKMetadata.v2"
         @test meta["spk"]["center_id"] == 399                 # naif_ids[1]
         @test meta["spk"]["ref_frame_name"] == "J2000"
+        @test meta["spk"]["output_spk_type"] == 13
+        @test !haskey(meta["spk"], "spk_type")
         @test meta["spk"]["polynom_degree"] == 7
         fm = meta["force_model"]
         @test fm["dynamics"] == "Nbody"
         @test fm["naif_ids"] == ["399", "301"]          # inferred from parameters
+        @test fm["mu_values"] == p.GMs
+        @test !haskey(fm, "GMs")
         @test fm["SRP"] == Dict("enabled" => true, "Cr" => 1.8)
         @test meta["extra"] == Dict("note" => "batch-a")
         @test collect(keys(meta["maneuvers"])) == ["trajectory_jumps"]

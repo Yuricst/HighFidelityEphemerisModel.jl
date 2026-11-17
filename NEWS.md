@@ -61,8 +61,11 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
     `spherical_harmonics_body`, `spherical_harmonics_file`, `spherical_harmonics_nmax`,
     `nmax` and `spherical_harmonics_frame` are removed: pass anything else through
     `force_model_metadata`, which is now deep-merged into the inferred entries instead
-    of replacing them. SRP/drag coefficients are only reported when the perturbation is
-    enabled.
+    of replacing them. Declare the actual EOM, whether it used spherical harmonics,
+    and the gravity model source through this keyword. With loaded harmonics, an
+    absent `spherical_harmonics.enabled` means usage is unknown; with no data loaded,
+    it is inferred as false. SRP/drag coefficients are only reported when enabled.
+    Original SRP inputs may be supplied separately when known.
   - Sidecar files are always named after the BSP (`<stem>_maneuvers.txt`,
     `<stem>_trajectory_jump_maneuvers.txt`, `<stem>_metadata.json`): `maneuver_txt`,
     `ocp_maneuver_txt` and `metadata_json` are removed. Passing `ocp_control` writes the
@@ -79,9 +82,11 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
     `states_dir`, `setup_dir`, `state_files` or `setup_files`; `maneuver_txt` is the OCP
     maneuver file only (`trajectory_maneuver_txt` is the jump diagnostic).
   - The metadata schema is now `SPKMetadata.v2`: `"maneuvers"` holds separate
-    `"ocp_control"` and `"trajectory_jumps"` entries, `"spk"` has `spk_type` instead of
-    `output_spk_type` and no `producer_id`/`leapseconds_file`, coverage windows include
-    the segment ID and number of samples, and force-model GMs are stored as `"GMs"`.
+    `"ocp_control"` and `"trajectory_jumps"` entries, `"spk"` has no
+    `producer_id`/`leapseconds_file`, and coverage windows include the segment ID and
+    number of samples. The JSON keys `spk.output_spk_type` (always 13) and
+    `force_model.mu_values` (physical GMs in km³/s² in NAIF ID order) retain their
+    original names.
   - Incremental writing moved to `append_ode_sol_to_spk!(sol, [et0,] parameters;
     output_spk, spice_id, append)`: passing a single solution to `ode_sol_to_spk` now
     writes a one-segment kernel, and `append`/`segment_index` are removed from it.

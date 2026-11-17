@@ -95,7 +95,7 @@ function build_spk_metadata(;
             "center_id" => center_id,
             "center_name" => center_id === nothing ? nothing : _body_name(center_id),
             "ref_frame_name" => ref_frame_name,
-            "spk_type" => 13,
+            "output_spk_type" => 13,
             "polynom_degree" => polynom_degree,
             "frame_def_file" => _path(frame_def_file),
         ),
@@ -134,12 +134,16 @@ end
 """
     infer_force_model_metadata(parameters) -> Dict
 
-Force-model metadata read from the dynamics parameters (`SpiceParameters`,
-`EphemeridesParameters`, or any object with the same property names): bodies and
-GMs, integration frame, spherical harmonics (central body, degree, body-fixed
-frame), SRP and drag. Quantities that the parameters do not store (e.g. the EOM
-name, or `Cr`, `A/m` and `P0`, which are folded into `k_srp_cannonball`) can be
-added through the `force_model_metadata` keyword of the SPK writers.
+Force-model metadata is inferred from the dynamics parameters
+(`SpiceParameters`, `EphemeridesParameters`, or compatible types):
+body IDs, physical GMs (`mu_values`, km³/s²), integration frame,
+spherical harmonics, SRP and drag.
+
+Loaded spherical-harmonics data do not necessarily mean they were
+used by the EOM; an absent `spherical_harmonics.enabled` means unknown
+usage. Use `force_model_metadata` to specify the actual EOM (`dynamics`),
+SH usage and gravity source, and original SRP inputs (`Cr`, `A_over_m`,
+`P0`) when known.
 """
 function infer_force_model_metadata(parameters)
     meta = Dict{String,Any}()
@@ -152,14 +156,17 @@ function infer_force_model_metadata(parameters)
     ids = _prop(parameters, :naif_ids)
     ids !== nothing && (meta["naif_ids"] = _json_safe(ids))
     gms = _prop(parameters, :GMs)
-    gms !== nothing && (meta["GMs"] = _json_safe(gms))
+    gms !== nothing && (meta["mu_values"] = _json_safe(gms))
     frame = _prop(parameters, :naif_frame)
     frame !== nothing && (meta["frame"] = _json_safe(frame))
 
     if hasproperty(parameters, :spherical_harmonics_data)
         data = parameters.spherical_harmonics_data
-        sh = Dict{String,Any}("enabled" => data !== nothing)
-        if data !== nothing
+        sh = Dict{String,Any}()
+        if data === nothing
+            sh["enabled"] = false
+        else
+            # Loaded data do not tell us whether the selected EOM applied them.
             # The harmonics are those of the central body, `naif_ids[1]`.
             ids !== nothing && !isempty(ids) && (sh["body"] = string(first(ids)))
             if data isa AbstractDict

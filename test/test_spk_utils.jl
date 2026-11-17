@@ -500,7 +500,7 @@ end
         @test meta["schema"] == "HighFidelityEphemerisModel.SPKMetadata.v2"
         @test meta["spk"]["object_id"] == -123456 && meta["spk"]["object_name"] === nothing
         @test meta["spk"]["center_id"] == 301 && meta["spk"]["center_name"] == "MOON"
-        @test meta["spk"]["spk_type"] == 13
+        @test meta["spk"]["output_spk_type"] == 13
         @test collect(keys(meta["maneuvers"])) == ["trajectory_jumps"]
         m = meta["maneuvers"]["trajectory_jumps"]
         @test m["file"] == abspath(jumps)
@@ -561,16 +561,16 @@ end
 @testset "SPK metadata: force-model inference and dict merging" begin
     @test _spkB_HFEM.infer_force_model_metadata(nothing) == Dict{String,Any}()
 
-    # harmonics, SRP and drag on: central body, degree, GM and radius from the data dictionary
+    # Loaded harmonics describe the field without declaring its usage; SRP and drag are on.
     p_on = (naif_ids = ["301", "399"], GMs = (1.0, 0.0123), naif_frame = "J2000",
         spherical_harmonics_data = Dict("nmax" => 8, "GM" => 4902.8, "REFERENCE RADIUS" => 1738.0, "Cnm" => [1.0]),
         frame_PCPF = "MOON_PA", include_drag = true, k_drag = 0.1, omega_atm = [0.0, 0.0, 7.29e-5],
         include_srp = true, k_srp_cannonball = 1e-9)
     fm = _spkB_HFEM.infer_force_model_metadata(p_on)
     @test fm["naif_ids"] == ["301", "399"]
-    @test fm["GMs"] == Any[1.0, 0.0123]
+    @test fm["mu_values"] == Any[1.0, 0.0123]
     @test fm["frame"] == "J2000"
-    @test fm["spherical_harmonics"] == Dict("enabled" => true, "body" => "301", "degree" => 8, "GM" => 4902.8,
+    @test fm["spherical_harmonics"] == Dict("body" => "301", "degree" => 8, "GM" => 4902.8,
         "reference_radius" => 1738.0, "body_fixed_frame" => "MOON_PA")
     @test fm["drag"] == Dict("enabled" => true, "k_drag_canonical" => 0.1, "omega_atm_radps" => [0.0, 0.0, 7.29e-5])
     @test fm["SRP"] == Dict("enabled" => true, "k_cannonball_canonical" => 1e-9)
@@ -597,8 +597,14 @@ end
     @test fm_spice["parameters_type"] == "SpiceParameters"
     @test fm_spice["naif_ids"] == ["301", "399", "10"]
     sh = fm_spice["spherical_harmonics"]
-    @test sh["enabled"] == true && sh["body"] == "301" && sh["degree"] == 8 && sh["body_fixed_frame"] == "MOON_PA"
+    @test !haskey(sh, "enabled")
+    @test sh["body"] == "301" && sh["degree"] == 8 && sh["body_fixed_frame"] == "MOON_PA"
     @test haskey(sh, "GM") && haskey(sh, "reference_radius")
+
+    # Explicitly declare that the point-mass EOM did not use the loaded field.
+    meta = _spkB_HFEM.build_spk_metadata(output_spk = "unused_sh.bsp", parameters = p_spice,
+        force_model_metadata = (dynamics = "eom_Nbody!", spherical_harmonics = (enabled = false,)))
+    @test meta["force_model"]["spherical_harmonics"] == merge(sh, Dict("enabled" => false))
     # Sun in `naif_ids` gives a nonzero k_srp_cannonball even with SRP off: not reported
     @test p_spice.k_srp_cannonball != 0.0
     @test fm_spice["SRP"] == Dict("enabled" => false)
