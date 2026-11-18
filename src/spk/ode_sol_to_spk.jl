@@ -25,9 +25,14 @@ _looks_like_single_ode_solution(obj) = hasproperty(obj, :t)
 """
     ode_sol_to_spk(sols, [et0,] parameters; output_spk, spice_id, kwargs...) -> NamedTuple
 
-Write a native SPICE type-13 SPK (BSP) file from one or more coast-arc ODE
-solutions `sols` (a single solution is treated as `[sol]`), together with
-optional maneuver and metadata sidecar files. `et0` defaults to `parameters.et0`.
+Write a native SPICE type-13 SPK (BSP) file from a collection `sols` of coast-arc
+ODE solutions, together with optional maneuver and metadata sidecar files. `et0`
+defaults to `parameters.et0`.
+
+A single ODE solution is rejected: in earlier versions, passing one solution
+appended it to an existing `output_spk`, while this function always writes a new
+kernel. Use [`append_ode_sol_to_spk!`](@ref) to write one arc at a time, or pass
+`[sol]` to write a one-segment kernel.
 
 By default, one SPK segment is written per coast arc, so that no segment
 interpolates across an impulsive maneuver.
@@ -116,7 +121,13 @@ function ode_sol_to_spk(
 )
     dt_sec > 0 || error("`dt_sec` must be positive.")
     segment_gap_sec >= 0 || error("`segment_gap_sec` must be nonnegative.")
-    _looks_like_single_ode_solution(sols) && (sols = [sols])
+    # Older versions appended a single solution to an existing kernel; refuse it
+    # rather than silently replacing that kernel with one arc.
+    _looks_like_single_ode_solution(sols) && error(
+        "`ode_sol_to_spk` takes a collection of ODE solutions and writes a new kernel; got a single " *
+        "solution. To append one arc at a time, use `append_ode_sol_to_spk!(sol, [et0,] parameters; " *
+        "output_spk, spice_id, append)` (and `finalize_spk` at the end); to write a one-segment " *
+        "kernel, pass `[sol]`.")
     length(sols) > 0 || error("`sols` is empty; provide at least one coast arc.")
     _check_sidecar_inputs(ocp_control, ocp_control_times, force_model_metadata)
 

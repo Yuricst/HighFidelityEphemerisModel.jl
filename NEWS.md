@@ -72,7 +72,8 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
     maneuver file and requires `ocp_control_times` (`write_ocp_maneuvers` and the
     summary-only mode are removed). `merge_ocp_maneuvers_into_metadata` is folded into
     `merge_maneuvers_into_metadata`.
-  - Also removed: `output_spk_type` (always 13), `producer_id`, `internal_file_name`,
+  - Also removed keyword arguments: `output_spk_type` (always 13; the
+    `spk.output_spk_type` metadata JSON key is kept), `producer_id`, `internal_file_name`,
     `ncomch`, `leapseconds_file`, `keep_intermediates`, `intermediate_parent_dir` (no
     work directory is created any more), `print_summary` (part of `verbose`) and
     `segment_id_per_seg`: segment IDs are now always `"<segment_id>_<k>"`, so
@@ -84,12 +85,14 @@ Changes relative to v0.3.0 (the `Project.toml` version is not bumped yet).
   - The metadata schema is now `SPKMetadata.v2`: `"maneuvers"` holds separate
     `"ocp_control"` and `"trajectory_jumps"` entries, `"spk"` has no
     `producer_id`/`leapseconds_file`, and coverage windows include the segment ID and
-    number of samples. The JSON keys `spk.output_spk_type` (always 13) and
-    `force_model.mu_values` (physical GMs in km³/s² in NAIF ID order) retain their
-    original names.
+    number of samples. The metadata JSON keys `spk.output_spk_type` (always 13, although
+    the keyword argument of the same name is removed) and `force_model.mu_values`
+    (physical GMs in km³/s² in NAIF ID order) retain their original names.
   - Incremental writing moved to `append_ode_sol_to_spk!(sol, [et0,] parameters;
-    output_spk, spice_id, append)`: passing a single solution to `ode_sol_to_spk` now
-    writes a one-segment kernel, and `append`/`segment_index` are removed from it.
+    output_spk, spice_id, append)`, and `append`/`segment_index` are removed from
+    `ode_sol_to_spk`. Passing a single solution to `ode_sol_to_spk` now throws an error:
+    it used to append to an existing kernel by default, and silently writing a new
+    kernel instead would discard the earlier arcs. Pass `[sol]` for a one-segment kernel.
     `append` must be given explicitly (re-running a script no longer appends to an old
     kernel), segments are numbered from the file, and no sidecar files are written per
     arc. The new `finalize_spk(output_spk, [et0,] parameters; ...)` writes the maneuver

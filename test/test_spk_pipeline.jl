@@ -524,9 +524,9 @@ function test_spkC_batch_summary_and_ocp_file()
 
         _spkC_check_spk(result.output_spk, arcs, p, (1.0, 9.0, 17.0); spice_id = spice_id)
 
-        # A single solution is written as a one-segment kernel (overwriting the previous one).
+        # A one-element collection is written as a one-segment kernel (overwriting the previous one).
         single = HighFidelityEphemerisModel.ode_sol_to_spk(
-            arcs[1], p; output_spk = output_spk, spice_id = spice_id, dt_sec = 100.0,
+            [arcs[1]], p; output_spk = output_spk, spice_id = spice_id, dt_sec = 100.0,
             write_metadata = false, verbose = false)
         @test single.segment_count == 1
         @test single.maneuver_summary["count"] == 0
@@ -584,6 +584,11 @@ function test_spkC_batch_errors()
         # a non-dictionary force_model_metadata is rejected before the kernel is replaced
         @test occursin("must be a dictionary or NamedTuple", _spkC_error_message(() ->
             HighFidelityEphemerisModel.ode_sol_to_spk(arcs, p.et0, p; common..., force_model_metadata = "eom_Nbody!")))
+        @test readdir(tmpdir) == ["err.bsp"] && read(output_spk, String) == "existing"
+
+        # a single solution (which older versions appended) is rejected without touching the kernel
+        msg = _spkC_error_message(() -> HighFidelityEphemerisModel.ode_sol_to_spk(arcs[1], p.et0, p; common...))
+        @test occursin("got a single solution", msg) && occursin("append_ode_sol_to_spk!", msg)
         @test readdir(tmpdir) == ["err.bsp"] && read(output_spk, String) == "existing"
     end
 end
