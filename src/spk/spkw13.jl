@@ -1,39 +1,22 @@
 """Native SPICE type-13 SPK writers"""
 
 
-"""
-    _resolve_spice_integer_id(id_value, name_value; label)
+# Internal file name written into the header of new SPK files (at most 60 characters).
+const _SPK_INTERNAL_FILE_NAME = "HighFidelityEphemerisModel.jl"
 
-Resolve either an integer SPICE ID or a registered SPICE object name to the
-integer code required by `spkw13`.
-
-The public API accepts both IDs and names, but the low-level SPICE writer always
-needs integer body and center codes.
-"""
-function _resolve_spice_integer_id(id_value, name_value; label::AbstractString)
-    if id_value !== nothing
-        return Int(id_value)
-    elseif name_value !== nothing
-        code = SPICE.bods2c(String(name_value))
-        code === nothing && error("Could not resolve $(label) name to a SPICE ID: $(name_value). Pass an integer ID instead.")
-        return Int(code)
-    else
-        error("Either `$(label)_id` or `$(label)_name` must be provided.")
-    end
-end
 
 """
-    _spkw13_segment_id(segment_id, segment_index; segment_id_per_seg=false)
+    _spkw13_segment_id(segment_id, segment_index)
 
-Build a valid SPK segment identifier. NAIF segment identifiers are limited to
+Segment identifier `"<segment_id>_<index>"`, with the index zero-padded to three
+digits (e.g. `"HFEM_SPK_SEGMENT_002"`; four digits from index 1000 on). NAIF segment identifiers are limited to
 40 printable characters, so this helper checks the limit before calling SPICE.
 """
-function _spkw13_segment_id(segment_id::AbstractString, segment_index::Integer; segment_id_per_seg::Bool = false)
-    tag = lpad(string(segment_index), 3, '0')
-    segid = segment_id_per_seg ? "$(segment_id)_$(tag)" : String(segment_id)
-    length(segid) <= 40 || error("SPK segment ID is too long ($(length(segid)) characters). Type-13 segment IDs must be at most 40 characters: $(segid)")
-    all(c -> isprint(c), segid) || error("SPK segment ID contains non-printable characters: $(segid)")
-    isempty(strip(segid)) && error("SPK segment ID must not be empty.")
+function _spkw13_segment_id(segment_id::AbstractString, segment_index::Integer)
+    isempty(strip(segment_id)) && error("`segment_id` must not be empty.")
+    all(isprint, segment_id) || error("`segment_id` contains non-printable characters: $(repr(segment_id))")
+    segid = string(segment_id, "_", lpad(string(segment_index), 3, '0'))
+    length(segid) <= 40 || error("SPK segment ID $(segid) is too long ($(length(segid)) characters); type-13 segment IDs must be at most 40 characters, including the `_<index>` suffix.")
     return segid
 end
 
@@ -146,245 +129,178 @@ function _safe_install_spk!(tmp_spk::AbstractString, output_spk::AbstractString;
     return output_spk
 end
 
-"""
-    write_spkw13_spk!(segments, output_spk; kwargs...)
 
-Write one native SPICE type-13 SPK file from sampled segment data.
+"""
+    _prepare_spkw13_segment(segment, segment_index; segment_id, polynom_degree)
+
+Convert one sampled segment (`epochs`, `states`, optional `first`/`last`) to the
+`Float64` layout expected by `spkw13`, build its segment ID and validate it.
+"""
+function _prepare_spkw13_segment(segment, segment_index::Integer; segment_id::AbstractString, polynom_degree::Integer)
+    epochs = Float64.(segment.epochs)
+    states = [Float64.(state) for state in segment.states]
+    segid = _spkw13_segment_id(segment_id, segment_index)
+    first = hasproperty(segment, :first) ? Float64(segment.first) : epochs[1]
+    last = hasproperty(segment, :last) ? Float64(segment.last) : epochs[end]
+    _validate_spkw13_segment(epochs, states; degree = polynom_degree, first = first, last = last, segid = segid)
+    return (; epochs, states, segid, first, last)
+end
+
+function _spkw13!(handle, seg, spice_id::Integer, center_id::Integer, ref_frame_name::AbstractString, polynom_degree::Integer)
+    # Type 13 stores position, velocity, and epoch samples. States must be
+    # dimensional `[x,y,z,vx,vy,vz]` in km and km/s.
+    SPICE.spkw13(handle, Int(spice_id), Int(center_id), String(ref_frame_name),
+        seg.first, seg.last, seg.segid, Int(polynom_degree), seg.states, seg.epochs)
+    return nothing
+end
+
+"""
+    write_spkw13_spk!(segments, output_spk; spice_id, center_id, kwargs...)
+
+Write one native SPICE type-13 SPK file from sampled segment data. `spice_id`
+and `center_id` are integer SPICE codes.
 
 Each element of `segments` must contain `epochs` and `states`, where epochs are
 seconds past J2000 TDB and states are six-component vectors in km and km/s.
+
+The kernel is written to a temporary file next to `output_spk` and only moved
+into place after SPICE has closed it, so an existing output is preserved if
+writing fails.
 """
 function write_spkw13_spk!(
     segments,
     output_spk::AbstractString;
-    spice_id::Union{Nothing,Integer} = nothing,
-    object_name::Union{Nothing,AbstractString} = nothing,
-    center_id::Union{Nothing,Integer} = nothing,
-    center_name::Union{Nothing,AbstractString} = nothing,
+    spice_id::Integer,
+    center_id::Integer,
     ref_frame_name::AbstractString = "J2000",
     segment_id::AbstractString = "HFEM_SPK_SEGMENT",
-    segment_id_per_seg::Bool = false,
     polynom_degree::Integer = 7,
-    producer_id::AbstractString = "HighFidelityEphemerisModel.jl",
-    internal_file_name::Union{Nothing,AbstractString} = nothing,
-    ncomch::Integer = 0,
     frame_def_file::Union{Nothing,AbstractString} = nothing,
     overwrite::Bool = true,
-    tmp_spk::Union{Nothing,AbstractString} = nothing,
     verbose::Bool = true,
     show_progress::Bool = true,
 )
     length(segments) > 0 || error("No SPK segments were provided.")
-
-    body_code = _resolve_spice_integer_id(spice_id, object_name; label = "spice")
-    center_code = _resolve_spice_integer_id(center_id, center_name; label = "center")
-
     output_spk_abs = _prepare_spk_final_path(output_spk; overwrite = overwrite)
 
-    # Full-kernel writes are staged in a temporary BSP and installed only after
-    # SPICE has closed the file. This keeps a previous output file recoverable if
-    # `spkw13` fails partway through segment writing.
-    tmp_spk_abs = tmp_spk === nothing ? joinpath(dirname(output_spk_abs), ".$(basename(output_spk_abs)).tmp_$(time_ns()).bsp") : abspath(tmp_spk)
-    isfile(tmp_spk_abs) && rm(tmp_spk_abs; force = true)
-    mkpath(dirname(tmp_spk_abs))
-
-    if frame_def_file !== nothing
-        # Furnish an optional frame kernel here so custom frame names are known
-        # before SPICE validates the segment descriptor.
-        SPICE.furnsh(String(frame_def_file))
-    end
-
-    ifname = internal_file_name === nothing ? String(producer_id) : String(internal_file_name)
-    length(ifname) > 60 && (ifname = ifname[1:60])
-
-    handle = nothing
-    closed = false
-    progress_enabled = verbose && show_progress
+    # Furnish an optional frame kernel first so custom frame names are known
+    # before SPICE validates the segment descriptor.
+    frame_def_file !== nothing && SPICE.furnsh(String(frame_def_file))
 
     # Convert and validate every segment before the temporary BSP is opened.
     # `spkcls` refuses to close an SPK that contains no segments, so failing
     # validation after `spkopn` would otherwise leave the file handle open
     # (and the file locked on Windows).
-    prepared = map(enumerate(segments)) do (idx, segment)
-        epochs = Float64.(segment.epochs)
-        states = [Float64.(state) for state in segment.states]
-        segid = _spkw13_segment_id(segment_id, idx; segment_id_per_seg = segment_id_per_seg)
-        first = hasproperty(segment, :first) ? Float64(segment.first) : epochs[1]
-        last = hasproperty(segment, :last) ? Float64(segment.last) : epochs[end]
-        _validate_spkw13_segment(
-            epochs,
-            states;
-            degree = polynom_degree,
-            first = first,
-            last = last,
-            segid = segid,
-        )
-        (; epochs, states, segid, first, last)
-    end
+    prepared = [_prepare_spkw13_segment(segment, idx; segment_id = segment_id, polynom_degree = polynom_degree)
+                for (idx, segment) in enumerate(segments)]
 
+    tmp_spk = joinpath(dirname(output_spk_abs), ".$(basename(output_spk_abs)).tmp_$(time_ns()).bsp")
+    handle = nothing
+    closed = false
     try
-        # `spkopn` creates a new SPK file and returns the DAF handle used by
-        # `spkw13`. Always close the handle with `spkcls` before moving the file.
-        handle = SPICE.spkopn(tmp_spk_abs, ifname, Int(ncomch))
-
-        for (idx, (; epochs, states, segid, first, last)) in enumerate(prepared)
-            # Type 13 stores position, velocity, and epoch samples. States must
-            # be dimensional `[x,y,z,vx,vy,vz]` in km and km/s.
-            SPICE.spkw13(
-                handle,
-                body_code,
-                center_code,
-                String(ref_frame_name),
-                first,
-                last,
-                segid,
-                Int(polynom_degree),
-                states,
-                epochs,
-            )
-
-            _print_progress("writing SPK segments", idx, length(prepared); enabled = progress_enabled)
+        handle = SPICE.spkopn(tmp_spk, _SPK_INTERNAL_FILE_NAME, 0)
+        for (idx, seg) in enumerate(prepared)
+            _spkw13!(handle, seg, spice_id, center_id, ref_frame_name, polynom_degree)
+            _print_progress("writing SPK segments", idx, length(prepared); enabled = verbose && show_progress)
         end
-
         # Closing flushes the DAF/SPK file to disk and balances `spkopn`.
         SPICE.spkcls(handle)
         closed = true
-        _safe_install_spk!(tmp_spk_abs, output_spk_abs; overwrite = overwrite)
-    catch err
-        if handle !== nothing && !closed
-            _close_spk_handle_after_error(handle; verbose = verbose)
-        end
+        _safe_install_spk!(tmp_spk, output_spk_abs; overwrite = overwrite)
+    catch
+        handle !== nothing && !closed && _close_spk_handle_after_error(handle; verbose = verbose)
         # Never let a cleanup failure mask the original error.
         try
-            isfile(tmp_spk_abs) && rm(tmp_spk_abs; force = true)
+            isfile(tmp_spk) && rm(tmp_spk; force = true)
         catch rm_err
             verbose && println("Warning: failed to remove temporary SPK after an error: ", rm_err)
         end
         rethrow()
     end
 
-    verbose && !show_progress && println("SPK complete: ", _display_path(output_spk_abs))
     return output_spk_abs
 end
 
 """
-    append_spkw13_segment_to_spk!(segment; output_spk, kwargs...)
+    append_spkw13_segment_to_spk!(segment, output_spk; segment_index, spice_id, center_id, kwargs...)
 
-Create or append one native SPICE type-13 segment to an SPK file.
+Append one native SPICE type-13 segment to an existing SPK file. `spice_id` and
+`center_id` are integer SPICE codes. New kernels are created with
+`write_spkw13_spk!`.
 """
 function append_spkw13_segment_to_spk!(
-    segment;
-    output_spk::AbstractString,
+    segment,
+    output_spk::AbstractString;
     segment_index::Integer,
-    append::Union{Nothing,Bool} = nothing,
-    spice_id::Union{Nothing,Integer} = nothing,
-    object_name::Union{Nothing,AbstractString} = nothing,
-    center_id::Union{Nothing,Integer} = nothing,
-    center_name::Union{Nothing,AbstractString} = nothing,
+    spice_id::Integer,
+    center_id::Integer,
     ref_frame_name::AbstractString = "J2000",
     segment_id::AbstractString = "HFEM_SPK_SEGMENT",
-    segment_id_per_seg::Bool = false,
     polynom_degree::Integer = 7,
-    producer_id::AbstractString = "HighFidelityEphemerisModel.jl",
-    internal_file_name::Union{Nothing,AbstractString} = nothing,
-    ncomch::Integer = 0,
     frame_def_file::Union{Nothing,AbstractString} = nothing,
 )
-    body_code = _resolve_spice_integer_id(spice_id, object_name; label = "spice")
-    center_code = _resolve_spice_integer_id(center_id, center_name; label = "center")
-
     output_spk_abs = abspath(output_spk)
-    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $(output_spk_abs)")
-    mkpath(dirname(output_spk_abs))
+    isfile(output_spk_abs) || error("Cannot append: output SPK does not exist: $(output_spk_abs)")
 
-    append_flag = append === nothing ? isfile(output_spk_abs) : Bool(append)
-    if append_flag
-        isfile(output_spk_abs) || error("Cannot append: output SPK does not exist: $(output_spk_abs)")
-    elseif isfile(output_spk_abs)
-        error("Output SPK already exists and `append=false`: $(output_spk_abs)")
-    end
+    frame_def_file !== nothing && SPICE.furnsh(String(frame_def_file))
+    seg = _prepare_spkw13_segment(segment, segment_index; segment_id = segment_id, polynom_degree = polynom_degree)
 
-    if frame_def_file !== nothing
-        SPICE.furnsh(String(frame_def_file))
-    end
-
-    epochs = Float64.(segment.epochs)
-    states = [Float64.(state) for state in segment.states]
-    segid = _spkw13_segment_id(segment_id, segment_index; segment_id_per_seg = segment_id_per_seg)
-    first = hasproperty(segment, :first) ? Float64(segment.first) : epochs[1]
-    last = hasproperty(segment, :last) ? Float64(segment.last) : epochs[end]
-
-    _validate_spkw13_segment(
-        epochs,
-        states;
-        degree = polynom_degree,
-        first = first,
-        last = last,
-        segid = segid,
-    )
-
-    ifname = internal_file_name === nothing ? String(producer_id) : String(internal_file_name)
-    length(ifname) > 60 && (ifname = ifname[1:60])
-
-    # `spkopa` opens an existing BSP for appending; `spkopn` creates the first
-    # file. This is the core path used by station-keeping loops that append one
-    # propagated arc at a time.
-    handle = append_flag ? SPICE.spkopa(output_spk_abs) : SPICE.spkopn(output_spk_abs, ifname, Int(ncomch))
-    closed = false
-
+    handle = SPICE.spkopa(output_spk_abs)
     try
-        SPICE.spkw13(
-            handle,
-            body_code,
-            center_code,
-            String(ref_frame_name),
-            first,
-            last,
-            segid,
-            Int(polynom_degree),
-            states,
-            epochs,
-        )
-        # Closing flushes the DAF/SPK file to disk and balances `spkopn`.
-        SPICE.spkcls(handle)
-        closed = true
-    catch err
-        closed || _close_spk_handle_after_error(handle; verbose = true)
+        _spkw13!(handle, seg, spice_id, center_id, ref_frame_name, polynom_degree)
+    catch
+        _close_spk_handle_after_error(handle)
         rethrow()
     end
+    SPICE.spkcls(handle)
 
     return output_spk_abs
 end
 
 """
-    _read_spk_states_file_for_spkw13(state_file)
+    read_spk_segments(spk) -> Vector{NamedTuple}
 
-Read a debug state text file back into the in-memory layout expected by the
-native type-13 writer. This is mainly used by compatibility tests and diagnostic
-workflows.
+Read the descriptor of every segment of an SPK file, in file order: `spice_id`,
+`center_id`, `ref_frame_name`, `spk_type`, `first`/`last` (coverage, ET seconds)
+and `segment_id`. For type-13 segments, `polynom_degree` and `point_count` are
+read from the segment data; they are `nothing` for other types.
 """
-function _read_spk_states_file_for_spkw13(state_file::AbstractString)
-    isfile(state_file) || error("Missing states file: $(state_file)")
+function read_spk_segments(spk::AbstractString)
+    spk_abs = abspath(spk)
+    isfile(spk_abs) || error("SPK file not found: $(spk_abs)")
 
-    epochs = Float64[]
-    states = Vector{Vector{Float64}}()
-
-    open(state_file, "r") do io
-        first_line_skipped = false
-        for line in eachline(io)
-            if !first_line_skipped
-                first_line_skipped = true
-                continue
+    segments = NamedTuple[]
+    handle = SPICE.dafopr(spk_abs)
+    try
+        SPICE.dafbfs(handle)
+        while SPICE.daffna()
+            dc, ic = SPICE.dafus(SPICE.dafgs(), 2, 6)
+            segid = strip(SPICE.dafgn())
+            frame_code, spk_type, data_end = ic[3], ic[4], ic[6]
+            degree = nothing
+            point_count = nothing
+            if spk_type == 13
+                # Type-13 segments end with (window size - 1, number of states);
+                # the Hermite degree is 2 * window size - 1.
+                window_minus_one, n = SPICE.dafgda(handle, data_end - 1, data_end)
+                degree = 2 * round(Int, window_minus_one) + 1
+                point_count = round(Int, n)
             end
-            s = strip(line)
-            isempty(s) && continue
-            fields = split(s, ",")
-            length(fields) == 7 || error("Expected 7 comma-separated fields in $(state_file), got $(length(fields)): $(s)")
-            push!(epochs, parse(Float64, strip(fields[1])))
-            push!(states, [parse(Float64, strip(fields[i])) for i in 2:7])
+            frame = SPICE.frmnam(frame_code)
+            push!(segments, (
+                spice_id = Int(ic[1]),
+                center_id = Int(ic[2]),
+                ref_frame_name = isempty(frame) ? string(frame_code) : String(frame),
+                spk_type = Int(spk_type),
+                first = Float64(dc[1]),
+                last = Float64(dc[2]),
+                segment_id = String(segid),
+                polynom_degree = degree,
+                point_count = point_count,
+            ))
         end
+    finally
+        SPICE.dafcls(handle)
     end
-
-    length(epochs) > 1 || error("State file $(state_file) must contain at least two states.")
-    return (epochs = epochs, states = states, first = epochs[1], last = epochs[end])
+    return segments
 end

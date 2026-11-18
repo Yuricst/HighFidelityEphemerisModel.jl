@@ -7,30 +7,72 @@ using Printf: @printf
 # Small internal helpers
 # =============================================================================
 
-function _get_et0_from_parameters(parameters)
-    return _property_first(parameters, (:et0, :ET0, :epoch0, :epoch_et0, :et_start, :t0_et))
+"""
+    _get_et0(parameters)
+
+Reference epoch `parameters.et0`, used by the methods that do not take `et0`
+explicitly.
+"""
+function _get_et0(parameters)
+    hasproperty(parameters, :et0) || error("No `et0` argument was provided and `parameters` has no `et0` property. Pass `et0` explicitly.")
+    return Float64(parameters.et0)
 end
 
-function _property_first(obj, names::Tuple)
-    obj === nothing && return nothing
-    for name in names
-        try
-            if hasproperty(obj, name)
-                return getproperty(obj, name)
-            end
-        catch
-            # Some objects define unusual property access. Skip and try the next alias.
-        end
+"""
+    _resolve_body_code(body; label)
+
+Integer SPICE code of `body`, given either as an integer ID or as a name/numeric
+string known to SPICE (resolved with `bods2c`).
+"""
+_resolve_body_code(body::Integer; label::AbstractString) = Int(body)
+
+function _resolve_body_code(body::AbstractString; label::AbstractString)
+    code = SPICE.bods2c(String(body))
+    code === nothing && error("Could not resolve `$(label)` = \"$(body)\" to a SPICE ID. Pass an integer ID instead.")
+    return Int(code)
+end
+
+_resolve_body_code(body; label::AbstractString) =
+    error("`$(label)` must be an integer SPICE ID or a SPICE body name, got $(repr(body)).")
+
+"""
+    _default_center(parameters)
+
+Default SPK center: the central body of the dynamics, `parameters.naif_ids[1]`.
+"""
+function _default_center(parameters)
+    if hasproperty(parameters, :naif_ids) && !isempty(parameters.naif_ids)
+        return string(first(parameters.naif_ids))
     end
-    return nothing
+    error("`center_id` was not given and `parameters` has no `naif_ids` to take the central body from. Pass `center_id`.")
 end
 
-function _add_if_found!(dict::AbstractDict, key::AbstractString, obj, names::Tuple)
-    value = _property_first(obj, names)
-    value === nothing && return dict
-    dict[key] = _json_safe(value)
-    return dict
+"""
+    _default_ref_frame(parameters)
+
+Default SPK reference frame: the integration frame `parameters.naif_frame`
+(states of the Cartesian EOMs are expressed in it), else `"J2000"`.
+
+`"ICRF"` (accepted by the Ephemerides.jl backend) is written as `"J2000"`, as in
+the backend itself. `"EME2000"` has no SPICE equivalent and is rejected: writing
+it as `"J2000"` would silently drop the frame bias.
+"""
+function _default_ref_frame(parameters)
+    hasproperty(parameters, :naif_frame) || return "J2000"
+    frame = strip(String(parameters.naif_frame))
+    uppercase(frame) == "ICRF" && return "J2000"
+    uppercase(frame) == "EME2000" && error("`parameters.naif_frame` is \"EME2000\", which is not a SPICE frame. Pass `ref_frame_name` explicitly.")
+    return String(frame)
 end
+
+function _body_name(code::Integer)
+    name = SPICE.bodc2n(Int(code))
+    return name === nothing ? nothing : String(name)
+end
+
+# `parameters.name` if that property exists, else `nothing`. Parameters may be
+# the package's parameter structs or duck-typed objects such as NamedTuples.
+_prop(obj, name::Symbol) = hasproperty(obj, name) ? getproperty(obj, name) : nothing
 
 
 function _display_path(path)
@@ -52,30 +94,20 @@ function _summary_get(d, key, default = nothing)
     end
 end
 
-function _print_spk_pipeline_summary(; output_spk, maneuver_txt, ocp_maneuver_txt, metadata_json,
-    segment_count, intermediate_dir, maneuver_summary, ocp_control_summary)
+function _print_spk_pipeline_summary(; output_spk, segment_count, maneuver_txt = nothing,
+    trajectory_maneuver_txt = nothing, metadata_json = nothing, ocp_control_summary = nothing)
 
     println()
     println("SPK generation complete")
     println("  segments                    : ", segment_count)
     println("  SPK                         : ", _display_path(output_spk))
-
-    # The OCP maneuver file is the primary maneuver product when it exists.
-    # The reconstructed trajectory-jump file is only a secondary diagnostic.
-    if maneuver_txt !== nothing
-        println("  maneuvers                   : ", _display_path(maneuver_txt))
-    end
-    if ocp_maneuver_txt !== nothing && ocp_maneuver_txt != maneuver_txt
-        println("  OCP maneuvers               : ", _display_path(ocp_maneuver_txt))
-    end
-
+    maneuver_txt !== nothing && println("  maneuvers (OCP controls)    : ", _display_path(maneuver_txt))
+    trajectory_maneuver_txt !== nothing && println("  trajectory-jump maneuvers   : ", _display_path(trajectory_maneuver_txt))
     metadata_json !== nothing && println("  metadata JSON               : ", _display_path(metadata_json))
-    intermediate_dir !== nothing && println("  intermediates               : ", _display_path(intermediate_dir))
 
     ocp_scalar = _summary_get(ocp_control_summary, "total_control_scalar_mps")
     if ocp_scalar !== nothing
-        @printf("  total control (OCP scalar)  : %.6e m/s
-", ocp_scalar)
+        @printf("  total control (OCP scalar)  : %.6e m/s\n", ocp_scalar)
     end
 
     return nothing
@@ -105,10 +137,8 @@ function _json_safe(x)
     x isa Integer && return x
     x isa AbstractFloat && return isfinite(x) ? Float64(x) : string(x)
 
-    if x isa NamedTuple
-        return Dict(string(k) => _json_safe(v) for (k, v) in pairs(x))
-    elseif x isa AbstractDict
-        return Dict(string(k) => _json_safe(v) for (k, v) in pairs(x))
+    if x isa NamedTuple || x isa AbstractDict
+        return Dict{String,Any}(string(k) => _json_safe(v) for (k, v) in pairs(x))
     elseif x isa Tuple
         return [_json_safe(v) for v in x]
     elseif x isa AbstractVector
@@ -182,84 +212,4 @@ function _write_json_string(io, s::AbstractString)
     )
     print(io, "\"", escaped, "\"")
     return nothing
-end
-
-
-# =============================================================================
-# Utility helpers
-# =============================================================================
-
-function list_segment_state_files(states_dir::AbstractString)
-    files = filter(f -> occursin(r"^seg_\d{3}_states\.txt$", f), readdir(states_dir))
-    sort!(files)
-    return [joinpath(states_dir, f) for f in files]
-end
-
-function list_segment_setup_files(setup_dir::AbstractString)
-    files = filter(f -> occursin(r"^seg_\d{3}_setup\.txt$", f), readdir(setup_dir))
-    sort!(files)
-    return [joinpath(setup_dir, f) for f in files]
-end
-
-"""
-    read_segment_boundary_epochs(states_dir)
-
-Read unique start/end epochs from all `seg_###_states.txt` files in a directory.
-"""
-function read_segment_boundary_epochs(states_dir::AbstractString)
-    boundaries = Float64[]
-    for path in list_segment_state_files(states_dir)
-        lines = readlines(path)
-        data_lines = lines[2:end]
-        isempty(data_lines) && continue
-
-        first_fields = split(first(data_lines), ",")
-        last_fields  = split(last(data_lines), ",")
-
-        et_start = parse(Float64, strip(first_fields[1]))
-        et_end   = parse(Float64, strip(last_fields[1]))
-
-        push!(boundaries, et_start)
-        push!(boundaries, et_end)
-    end
-    return sort(unique(boundaries))
-end
-
-function read_segment_boundary_epochs(states_dir::AbstractString, nseg::Integer)
-    boundaries = Float64[]
-    for seg_idx in 1:nseg
-        tag = lpad(string(seg_idx), 3, '0')
-        path = joinpath(states_dir, "seg_$(tag)_states.txt")
-        isfile(path) || error("Missing states file: $path")
-
-        lines = readlines(path)
-        data_lines = lines[2:end]
-        isempty(data_lines) && continue
-
-        first_fields = split(first(data_lines), ",")
-        last_fields  = split(last(data_lines), ",")
-
-        et_start = parse(Float64, strip(first_fields[1]))
-        et_end   = parse(Float64, strip(last_fields[1]))
-
-        push!(boundaries, et_start)
-        push!(boundaries, et_end)
-    end
-    return sort(unique(boundaries))
-end
-
-function _make_spk_pipeline_workdir(output_spk_abs::AbstractString, intermediate_parent_dir)
-    parent = intermediate_parent_dir === nothing ? dirname(output_spk_abs) : abspath(String(intermediate_parent_dir))
-    mkpath(parent)
-    return mktempdir(parent; prefix = "ode_sol_to_spk_")
-end
-
-"""
-    _tool_path(path)
-
-Convert a path to a slash-separated string.
-"""
-function _tool_path(path::AbstractString)
-    # Forward slashes are easier to read and portable in generated text products.
-    return replace(String(path), "\\" => "/")
 end

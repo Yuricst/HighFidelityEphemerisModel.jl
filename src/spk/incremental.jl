@@ -1,201 +1,175 @@
-"""Incremental SPK writing helpers"""
+"""Incremental SPK writing: append one ODE solution at a time, then finalize"""
 
-# These helpers support the station-keeping workflow where each propagated ODE
-# arc is appended to the same BSP immediately. That avoids storing all
-# `ODESolution` objects in memory until the end of a long Monte Carlo run.
+# These functions support station-keeping loops where each propagated arc is
+# written to the BSP as soon as it is available, so that the `ODESolution`
+# objects of a long Monte Carlo run need not be kept in memory:
+#
+#     for k in 1:N
+#         sol_k = ...   # propagate one arc
+#         append_ode_sol_to_spk!(sol_k, parameters; output_spk, spice_id, append = k > 1)
+#     end
+#     finalize_spk(output_spk, parameters; ocp_control, ocp_control_times)
 
-
-"""
-    prepare_spk_output!(output_spk; overwrite=true)
-
-Prepare a final `.bsp` file path for a new SPK build. This removes an existing
-file only when `overwrite=true`, creates the parent folder, and returns the
-absolute output path.
-
-For the high-level `ode_sol_to_spk` pipeline, the existing BSP is preserved until
-a replacement kernel has been fully written and closed.
-"""
-function prepare_spk_output!(output_spk::AbstractString; overwrite::Bool = true)
-    output_spk_abs = abspath(output_spk)
-    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $output_spk_abs")
-    mkpath(dirname(output_spk_abs))
-
-    if isfile(output_spk_abs)
-        if overwrite
-            try
-                rm(output_spk_abs; force = true)
-            catch err
-                error("Could not remove existing SPK: $output_spk_abs. If it is furnished/loaded in SPICE or open elsewhere, close/unload it first. Original error: $err")
-            end
-        else
-            error("Output SPK already exists and `overwrite=false`: $output_spk_abs")
-        end
-    end
-
-    return output_spk_abs
-end
 
 """
-    write_solution_segment_states_for_spk!(sol, et0, parameters; kwargs...)
+    append_ode_sol_to_spk!(sol, [et0,] parameters; output_spk, spice_id, append, kwargs...) -> NamedTuple
 
-Write one text `STATES` file from one ODE solution segment. This helper is kept
-for debugging and backwards compatibility. The main SPK pipeline now writes BSP
-files directly with native SPICE type-13 routines.
+Write one ODE solution `sol` as one native SPICE type-13 segment of
+`output_spk`. With `append = false`, a new kernel is created (replacing any
+existing file); with `append = true`, the segment is appended to the existing
+kernel. `et0` defaults to `parameters.et0`.
+
+Segments are numbered in file order: the segment ID is `"<segment_id>_<k>"`,
+where `k - 1` is the number of segments already in the file. When consecutive
+arcs share a boundary epoch, SPICE uses the segment appended last there (the
+post-maneuver state).
+
+Keywords `spice_id`, `center_id`, `ref_frame_name`, `dt_sec`, `polynom_degree`,
+`segment_id` and `frame_def_file` have the same meaning and defaults as for
+[`ode_sol_to_spk`](@ref). No sidecar files are written: call
+[`finalize_spk`](@ref) once all arcs have been appended.
+
+Returns a `NamedTuple` with `output_spk`, `segment_index`, `appended`,
+`epoch_range` and `point_count`.
 """
-function write_solution_segment_states_for_spk!(
-    sol,
-    et0,
-    parameters;
-    segment_index::Integer,
-    dt_sec::Real = 1800.0,
-    segment_gap_sec::Real = 0.0,
-    outdir::AbstractString = "states_segmented",
-)
-    dt = Float64(dt_sec)
-    gap = Float64(segment_gap_sec)
-    dt > 0 || error("`dt_sec` must be positive.")
-    gap >= 0 || error("`segment_gap_sec` must be nonnegative.")
-
-    isdir(outdir) || mkpath(outdir)
-
-    # Build one in-memory segment from this one ODE solution. This is the
-    # canonical SK append workflow requested for long simulations.
-    et_start = Float64(et0 + sol.t[1] * parameters.TU)
-    et_end_true = Float64(et0 + sol.t[end] * parameters.TU)
-    et_end = et_end_true - gap
-    et_end > et_start || error("Bad segment span after applying segment_gap_sec=$(gap).")
-
-    # Sample only this one propagated arc. The high-level append path sends the
-    # sampled points directly to `spkw13`; the text file path is for debugging.
-    ts_et = build_segment_epochs(et_start, et_end; dt_sec = dt)
-
-    cols = Vector{Vector{Float64}}()
-    for et in ts_et
-        t_nd = (et - et0) / parameters.TU
-        x_nd = sol(t_nd)
-        length(x_nd) >= 6 || error("Expected a state with at least 6 components, got length $(length(x_nd)).")
-
-        # Convert canonical ODE states to the dimensional units required by SPK.
-        r_km = x_nd[1:3] .* parameters.DU
-        v_kmps = x_nd[4:6] .* parameters.VU
-        push!(cols, vcat(Float64.(r_km), Float64.(v_kmps)))
-    end
-
-    length(ts_et) > 1 || error("Segment $(segment_index) produced <2 points. Reduce dt_sec or check segment duration.")
-
-    Y = reduce(hcat, cols)
-    tag = lpad(string(segment_index), 3, '0')
-    outpath = joinpath(outdir, "seg_$(tag)_states.txt")
-    write_spk_states_file(outpath, ts_et, Y)
-
-    return (
-        state_file = outpath,
-        epoch_range = (ts_et[1], ts_et[end]),
-        point_count = length(ts_et),
-    )
-end
-
-"""
-    append_state_file_to_spk!(state_file; output_spk, segment_index, kwargs...)
-
-Create or append one native SPICE type-13 segment from an existing text `STATES`
-file. This is a backwards-compatible debugging helper; the preferred path is to
-sample ODE solutions in memory and call `append_solution_segment_to_spk!`.
-"""
-function append_state_file_to_spk!(
-    state_file::AbstractString;
-    output_spk::AbstractString,
-    segment_index::Integer,
-    setup_dir::AbstractString = "setup_segmented",
-    append::Union{Nothing,Bool} = nothing,
-    kwargs...,
-)
-    # Compatibility path: read a debug state file and append it through the same
-    # native type-13 writer used by the in-memory path.
-    segment = _read_spk_states_file_for_spkw13(state_file)
-    append_flag = append === nothing ? isfile(abspath(output_spk)) : Bool(append)
-
-    output_spk_abs = append_spkw13_segment_to_spk!(
-        segment;
-        output_spk = output_spk,
-        segment_index = segment_index,
-        append = append_flag,
-        kwargs...,
-    )
-
-    return (
-        output_spk = output_spk_abs,
-        state_file = state_file,
-        setup_file = nothing,
-        appended = append_flag,
-        epoch_range = (segment.epochs[1], segment.epochs[end]),
-    )
-end
-
-"""
-    append_solution_segment_to_spk!(sol, et0, parameters; output_spk, segment_index, kwargs...)
-
-One-call helper for station-keeping recursion. It samples one ODE solution
-segment and creates/appends it to a run-specific SPK kernel using native SPICE
-type-13 routines.
-"""
-function append_solution_segment_to_spk!(
+function append_ode_sol_to_spk!(
     sol,
     et0,
     parameters;
     output_spk::AbstractString,
-    segment_index::Integer,
-    append::Union{Nothing,Bool} = nothing,
-    overwrite::Bool = true,
+    spice_id::Union{Integer,AbstractString},
+    append::Bool,
+    center_id::Union{Nothing,Integer,AbstractString} = nothing,
+    ref_frame_name::Union{Nothing,AbstractString} = nothing,
     dt_sec::Real = 1800.0,
-    segment_gap_sec::Real = 0.0,
-    kwargs...,
+    polynom_degree::Integer = 7,
+    segment_id::AbstractString = "HFEM_SPK_SEGMENT",
+    frame_def_file::Union{Nothing,AbstractString} = nothing,
 )
-    output_spk_abs = abspath(output_spk)
-    append_flag = append === nothing ? isfile(output_spk_abs) : Bool(append)
+    dt_sec > 0 || error("`dt_sec` must be positive.")
+    spk_ids = _resolve_spk_ids(parameters, spice_id, center_id, ref_frame_name)
 
-    if append_flag
-        isfile(output_spk_abs) || error("Cannot append: output SPK does not exist: $(output_spk_abs)")
-    elseif isfile(output_spk_abs)
-        if overwrite
-            rm(output_spk_abs; force = true)
-        else
-            error("Output SPK already exists and `overwrite=false`: $(output_spk_abs)")
-        end
+    output_spk_abs = abspath(output_spk)
+    splitext(output_spk_abs)[2] == ".bsp" || error("`output_spk` must end in `.bsp`: $(output_spk_abs)")
+    if append
+        isfile(output_spk_abs) || error("Cannot append: output SPK does not exist: $(output_spk_abs). Use `append = false` for the first arc.")
+        segment_index = length(read_spk_segments(output_spk_abs)) + 1
+    else
+        segment_index = 1
     end
 
-    state_result = sample_segmented_states_for_spk(
-        [sol],
-        [(1, 1)],
-        et0,
-        parameters;
+    sampled = sample_segmented_states_for_spk(
+        [sol], [(1, 1)], et0, parameters;
         dt_sec = Float64(dt_sec),
-        segment_gap_sec = Float64(segment_gap_sec),
+        segment_gap_sec = 0.0,
         verbose = false,
         show_progress = false,
     )
+    segment = only(sampled.segments)
 
-    segment = state_result.segments[1]
-    output_spk_abs = append_spkw13_segment_to_spk!(
-        segment;
+    kw = (; spk_ids..., segment_id = segment_id, polynom_degree = polynom_degree, frame_def_file = frame_def_file)
+    if append
+        append_spkw13_segment_to_spk!(segment, output_spk_abs; segment_index = segment_index, kw...)
+    else
+        # Staged in a temporary file: an existing kernel is only replaced once
+        # the new one has been written.
+        write_spkw13_spk!([segment], output_spk_abs; kw..., overwrite = true, verbose = false, show_progress = false)
+    end
+
+    return (
         output_spk = output_spk_abs,
         segment_index = segment_index,
-        append = append_flag,
-        kwargs...,
+        appended = append,
+        epoch_range = only(sampled.epoch_ranges),
+        point_count = only(sampled.point_counts),
+    )
+end
+
+append_ode_sol_to_spk!(sol, parameters; kwargs...) =
+    append_ode_sol_to_spk!(sol, _get_et0(parameters), parameters; kwargs...)
+
+
+"""
+    finalize_spk(output_spk, [et0,] parameters; kwargs...) -> NamedTuple
+
+Write the sidecar files of an SPK built with [`append_ode_sol_to_spk!`](@ref):
+the OCP maneuver file `<stem>_maneuvers.txt` (when `ocp_control` is given) and
+the metadata file `<stem>_metadata.json`. The SPK itself is not modified. `et0`
+defaults to `parameters.et0`.
+
+The object, center, frame, polynomial degree and per-segment coverage recorded
+in the metadata are read from the segments of `output_spk`, so the metadata
+describes every appended arc. The sampling interval is not stored in the SPK and
+is recorded as `null`. Trajectory-jump diagnostics need the ODE solutions and
+are only available from [`ode_sol_to_spk`](@ref).
+
+Keywords `ocp_control`, `ocp_control_times`, `write_metadata`,
+`merge_maneuvers_into_metadata`, `force_model_metadata`, `extra_metadata` and
+`verbose` have the same meaning as for [`ode_sol_to_spk`](@ref).
+
+Returns a `NamedTuple` with `output_spk`, `maneuver_txt`, `metadata_json`,
+`ocp_control_summary`, `segment_count`, `epoch_ranges` and `point_counts`.
+"""
+function finalize_spk(
+    output_spk::AbstractString,
+    et0,
+    parameters;
+    ocp_control = nothing,
+    ocp_control_times = nothing,
+    write_metadata::Bool = true,
+    merge_maneuvers_into_metadata::Bool = false,
+    force_model_metadata = nothing,
+    extra_metadata = nothing,
+    verbose::Bool = true,
+)
+    _check_sidecar_inputs(ocp_control, ocp_control_times, force_model_metadata)
+    output_spk_abs = abspath(output_spk)
+    segments = read_spk_segments(output_spk_abs)
+    isempty(segments) && error("SPK has no segments: $(output_spk_abs)")
+
+    for field in (:spice_id, :center_id, :ref_frame_name)
+        values = unique(getproperty.(segments, field))
+        length(values) == 1 || error("`finalize_spk` expects all segments of $(output_spk_abs) to share one `$(field)`; found $(values).")
+    end
+    degrees = unique(s.polynom_degree for s in segments)
+    seg1 = first(segments)
+
+    sidecars = _write_spk_sidecars(
+        output_spk_abs, et0, parameters;
+        spk_info = (
+            spice_id = seg1.spice_id,
+            center_id = seg1.center_id,
+            ref_frame_name = seg1.ref_frame_name,
+            polynom_degree = length(degrees) == 1 ? only(degrees) : degrees,
+        ),
+        windows = [(start_et = s.first, end_et = s.last, point_count = s.point_count, segment_id = s.segment_id)
+                   for s in segments],
+        ocp_control = ocp_control,
+        ocp_control_times = ocp_control_times,
+        write_metadata = write_metadata,
+        merge_maneuvers_into_metadata = merge_maneuvers_into_metadata,
+        force_model_metadata = force_model_metadata,
+        extra_metadata = extra_metadata,
+    )
+
+    verbose && _print_spk_pipeline_summary(;
+        output_spk = output_spk_abs,
+        segment_count = length(segments),
+        maneuver_txt = sidecars.maneuver_txt,
+        metadata_json = sidecars.metadata_json,
+        ocp_control_summary = sidecars.ocp_control_summary,
     )
 
     return (
         output_spk = output_spk_abs,
-        state_file = nothing,
-        setup_file = nothing,
-        appended = append_flag,
-        epoch_range = state_result.epoch_ranges[1],
-        point_count = state_result.point_counts[1],
+        maneuver_txt = sidecars.maneuver_txt,
+        metadata_json = sidecars.metadata_json,
+        ocp_control_summary = sidecars.ocp_control_summary,
+        segment_count = length(segments),
+        epoch_ranges = [(s.first, s.last) for s in segments],
+        point_counts = [s.point_count for s in segments],
     )
 end
 
-function append_solution_segment_to_spk!(sol, parameters; kwargs...)
-    et0 = _get_et0_from_parameters(parameters)
-    et0 === nothing && error("No `et0` argument was provided and `parameters` has no recognized ET0 property. Tried: et0, ET0, epoch0, et_start, t0_et.")
-    return append_solution_segment_to_spk!(sol, Float64(et0), parameters; kwargs...)
-end
+finalize_spk(output_spk::AbstractString, parameters; kwargs...) =
+    finalize_spk(output_spk, _get_et0(parameters), parameters; kwargs...)

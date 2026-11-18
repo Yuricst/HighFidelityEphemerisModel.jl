@@ -54,97 +54,31 @@ Summarize maneuver entries using station-keeping cost convention
 `total_delta_v = sum(norm.(dv_i))`.
 """
 function summarize_maneuver_entries_mps(entries)
-    if isempty(entries)
-        return Dict{String,Any}(
-            "count" => 0,
-            "total_delta_v_mps" => 0.0,
-            "total_delta_v_cmps" => 0.0,
-            "max_delta_v_mps" => 0.0,
-            "max_delta_v_cmps" => 0.0,
-            "mean_delta_v_mps" => 0.0,
-            "mean_delta_v_cmps" => 0.0,
-            "rms_delta_v_mps" => 0.0,
-            "rms_delta_v_cmps" => 0.0,
-        )
-    end
-
-    dvs = [Float64(e.dv_norm_mps) for e in entries]
-    total = sum(dvs)
-    meanv = total / length(dvs)
-    rmsv = sqrt(sum(abs2, dvs) / length(dvs))
-    maxv = maximum(dvs)
-
-    return Dict{String,Any}(
-        "count" => length(dvs),
-        "total_delta_v_mps" => total,
-        "total_delta_v_cmps" => 100.0 * total,
-        "max_delta_v_mps" => maxv,
-        "max_delta_v_cmps" => 100.0 * maxv,
-        "mean_delta_v_mps" => meanv,
-        "mean_delta_v_cmps" => 100.0 * meanv,
-        "rms_delta_v_mps" => rmsv,
-        "rms_delta_v_cmps" => 100.0 * rmsv,
-    )
+    summary = Dict{String,Any}("count" => length(entries))
+    _add_dv_stats!(summary, "delta_v", [Float64(e.dv_norm_mps) for e in entries]; rms = true)
+    return summary
 end
 
 
 """
-    summarize_ocp_control_mps(ocp_control, parameters)
+    _add_dv_stats!(summary, name, values_mps; rms=false)
 
-Summarize the optimizer-side control matrix, e.g. `solution.u`, separately from
-velocity jumps reconstructed from adjacent coast arcs. If the matrix has at
-least four rows, row 4 is treated as the OCP scalar magnitude/slack variable.
-Rows 1:3 are always summarized as vector-norm controls when available.
+Add `total_<name>`, `max_<name>`, `mean_<name>` (and optionally `rms_<name>`)
+statistics of `values_mps` to `summary`, each in m/s (`_mps` key suffix) and cm/s
+(`_cmps`). All statistics are zero for an empty list.
 """
-function summarize_ocp_control_mps(ocp_control, parameters)
-    nrow = size(ocp_control, 1)
-    ncol = size(ocp_control, 2)
-
-    # Convert nondimensional velocity control to physical m/s once, then use the
-    # same scale for scalar and vector summaries.
-
-    # Convert nondimensional velocity control to physical m/s once, then use
-    # the same scale for scalar and vector summaries.
-    vu_to_mps = Float64(parameters.VU) * 1000.0
-
-    summary = Dict{String,Any}(
-        "source" => "ocp_control keyword",
-        "count" => ncol,
-        "units" => "m/s",
-    )
-
-    if nrow >= 3
-        # Rows 1:3 are the vector control components. Keep their norm as a
-        # diagnostic even when row 4 is the primary OCP cost.
-        vec_norms_nd = [sqrt(sum(abs2, ocp_control[1:3, k])) for k in 1:ncol]
-        vec_norms_mps = Float64.(vec_norms_nd) .* vu_to_mps
-        total_vec = sum(vec_norms_mps)
-
-        summary["total_control_vector_norm_mps"] = total_vec
-        summary["total_control_vector_norm_cmps"] = 100.0 * total_vec
-        summary["max_control_vector_norm_mps"] = isempty(vec_norms_mps) ? 0.0 : maximum(vec_norms_mps)
-        summary["max_control_vector_norm_cmps"] = 100.0 * summary["max_control_vector_norm_mps"]
-        summary["mean_control_vector_norm_mps"] = isempty(vec_norms_mps) ? 0.0 : total_vec / ncol
-        summary["mean_control_vector_norm_cmps"] = 100.0 * summary["mean_control_vector_norm_mps"]
-        summary["cost_convention_vector_norm"] = "sum(norm.(ocp_control[1:3,k])) * VU * 1000"
+function _add_dv_stats!(summary::AbstractDict, name::AbstractString, values_mps::AbstractVector; rms::Bool = false)
+    n = length(values_mps)
+    stats = [
+        "total" => (n == 0 ? 0.0 : sum(values_mps)),
+        "max" => (n == 0 ? 0.0 : maximum(values_mps)),
+        "mean" => (n == 0 ? 0.0 : sum(values_mps) / n),
+    ]
+    rms && push!(stats, "rms" => (n == 0 ? 0.0 : sqrt(sum(abs2, values_mps) / n)))
+    for (stat, value) in stats
+        summary["$(stat)_$(name)_mps"] = Float64(value)
+        summary["$(stat)_$(name)_cmps"] = 100.0 * Float64(value)
     end
-
-    if nrow >= 4
-        # Row 4 is the scalar control/slack variable minimized by the OCP
-        # objective in the station-keeping experiments.
-        scalar_nd = Float64.(ocp_control[4, :])
-        scalar_mps = scalar_nd .* vu_to_mps
-        total_scalar = sum(scalar_mps)
-
-        summary["total_control_scalar_mps"] = total_scalar
-        summary["total_control_scalar_cmps"] = 100.0 * total_scalar
-        summary["max_control_scalar_mps"] = isempty(scalar_mps) ? 0.0 : maximum(scalar_mps)
-        summary["max_control_scalar_cmps"] = 100.0 * summary["max_control_scalar_mps"]
-        summary["mean_control_scalar_mps"] = isempty(scalar_mps) ? 0.0 : total_scalar / ncol
-        summary["mean_control_scalar_cmps"] = 100.0 * summary["mean_control_scalar_mps"]
-        summary["cost_convention_scalar"] = "sum(ocp_control[4,:]) * VU * 1000"
-    end
-
     return summary
 end
 
@@ -160,9 +94,6 @@ magnitude/slack variable used by the objective.
 function collect_ocp_control_maneuvers_mps(ocp_control_times, ocp_control, et0, parameters)
     nrow = size(ocp_control, 1)
     ncol = size(ocp_control, 2)
-
-    # Convert nondimensional velocity control to physical m/s once, then use the
-    # same scale for scalar and vector summaries.
 
     nrow >= 3 || error("`ocp_control` must have at least 3 rows for DVX/DVY/DVZ.")
     length(ocp_control_times) == ncol || error("`ocp_control_times` length ($(length(ocp_control_times))) must match number of OCP control columns ($(ncol)).")
@@ -213,49 +144,20 @@ function summarize_ocp_control_entries_mps(entries)
         "count" => length(entries),
         "units" => "m/s",
         "format" => "ETSECONDS,DVX_mps,DVY_mps,DVZ_mps,DV_norm_from_vector_mps,DV_scalar_u4_mps",
+        "cost_convention_vector_norm" => "sum(norm.(ocp_control[1:3,k])) * VU * 1000",
     )
+    _add_dv_stats!(summary, "control_vector_norm", [Float64(e.dv_norm_from_vector_mps) for e in entries])
 
-    vec_norms = [Float64(e.dv_norm_from_vector_mps) for e in entries]
-    if isempty(vec_norms)
-        summary["total_control_vector_norm_mps"] = 0.0
-        summary["total_control_vector_norm_cmps"] = 0.0
-        summary["max_control_vector_norm_mps"] = 0.0
-        summary["max_control_vector_norm_cmps"] = 0.0
-        summary["mean_control_vector_norm_mps"] = 0.0
-        summary["mean_control_vector_norm_cmps"] = 0.0
-    else
-        total_vec = sum(vec_norms)
-        max_vec = maximum(vec_norms)
-        summary["total_control_vector_norm_mps"] = total_vec
-        summary["total_control_vector_norm_cmps"] = 100.0 * total_vec
-        summary["max_control_vector_norm_mps"] = max_vec
-        summary["max_control_vector_norm_cmps"] = 100.0 * max_vec
-        summary["mean_control_vector_norm_mps"] = total_vec / length(vec_norms)
-        summary["mean_control_vector_norm_cmps"] = 100.0 * summary["mean_control_vector_norm_mps"]
-    end
-    summary["cost_convention_vector_norm"] = "sum(norm.(ocp_control[1:3,k])) * VU * 1000"
-
-    scalars = Float64[]
-    for e in entries
-        if e.dv_scalar_u4_mps !== nothing
-            push!(scalars, Float64(e.dv_scalar_u4_mps))
-        end
-    end
-
+    # Row 4 (scalar magnitude/slack of the OCP objective) is optional.
+    scalars = [Float64(e.dv_scalar_u4_mps) for e in entries if e.dv_scalar_u4_mps !== nothing]
     if !isempty(scalars)
-        total_scalar = sum(scalars)
-        max_scalar = maximum(scalars)
-        summary["total_control_scalar_mps"] = total_scalar
-        summary["total_control_scalar_cmps"] = 100.0 * total_scalar
-        summary["max_control_scalar_mps"] = max_scalar
-        summary["max_control_scalar_cmps"] = 100.0 * max_scalar
-        summary["mean_control_scalar_mps"] = total_scalar / length(scalars)
-        summary["mean_control_scalar_cmps"] = 100.0 * summary["mean_control_scalar_mps"]
+        _add_dv_stats!(summary, "control_scalar", scalars)
         summary["cost_convention_scalar"] = "sum(ocp_control[4,:]) * VU * 1000"
     end
 
     return summary
 end
+
 
 """
     write_ocp_control_entries_mps(outpath, entries)
@@ -301,23 +203,4 @@ function write_maneuver_entries_mps(outpath::AbstractString, entries)
     end
 
     return outpath
-end
-
-"""
-    write_node_to_node_maneuvers_mps(outpath, sols, et0, parameters)
-
-Write nominal node-to-node delta-Vs. Each row is the instantaneous velocity jump
-between `sols[k]` end and `sols[k+1]` start.
-
-Output format:
-`# ETSECONDS,DVX_mps,DVY_mps,DVZ_mps`
-"""
-function write_node_to_node_maneuvers_mps(
-    outpath::AbstractString,
-    sols,
-    et0,
-    parameters,
-)
-    entries = collect_node_to_node_maneuvers_mps(sols, et0, parameters)
-    return write_maneuver_entries_mps(outpath, entries)
 end

@@ -62,10 +62,6 @@ export sun_position_analytic, sun_position_earth_fixed_analytic, ephemerides_sun
 export SphericalHarmonicsField, SphericalHarmonicsCoefficients
 export JacchiaRobertsModel, jacchia_roberts_f_density, JacchiaRobertsGeomagneticExposphericParams
 
-export ode_sol_to_spk
-export prepare_spk_output!
-export append_solution_segment_to_spk!
-export append_state_file_to_spk!
-export write_spk_metadata_json
+export ode_sol_to_spk, append_ode_sol_to_spk!, finalize_spk
 
 end # module HighFidelityEphemerisModel
